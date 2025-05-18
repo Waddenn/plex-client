@@ -15,7 +15,6 @@
       name = "plex-minimal";
       runtimeInputs = [pythonEnv pkgs.mpv pkgs.fzf];
 
-      # build_cache.py est ici passé comme chemin exact
       text = ''
         export BUILD_CACHE=${./build_cache.py}
         exec python3 ${./plex-player.py} "$@"

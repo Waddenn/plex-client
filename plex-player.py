@@ -9,23 +9,24 @@ cache_script = os.environ.get("BUILD_CACHE", "build_cache.py")
 with open(token_path) as f:
     token = f.read().strip()
 
-# Regénère la base si absente
 if not os.path.exists(db_path):
     subprocess.run(["python3", cache_script], check=True)
 
-# Connexion à la base
 conn = sqlite3.connect(db_path)
 cur = conn.cursor()
 
-# Relance le script de cache en arrière-plan
 subprocess.Popen(["python3", cache_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-def fzf_select(prompt, items):
-    result = subprocess.run(["fzf", "--prompt=" + prompt], input="\n".join(items), text=True, capture_output=True)
+def fzf_select(prompt, items, default_first=False):
+    options = ["fzf", "--prompt=" + prompt]
+    if default_first:
+        options += ["--header-lines=1"]
+        items = [""] + items  # Insert empty header line
+    result = subprocess.run(options, input="\n".join(items), text=True, capture_output=True)
     return result.stdout.strip() if result.returncode == 0 else None
 
 def lancer_mpv(titre, url):
-    subprocess.Popen([
+    subprocess.run([
         "mpv", "--force-window=yes", "--hwdec=vaapi",
         f"--title={titre}", f"{url}?X-Plex-Token={token}"
     ])
@@ -59,16 +60,41 @@ def menu_series():
     sa_id = dict((f"Saison {i}", sid) for sid, i in saisons)[label]
 
     cur.execute("SELECT episode_index, title, part_key FROM episodes WHERE saison_id = ? ORDER BY episode_index", (sa_id,))
-    e_map = {f"{i:02d}. {t}": k for i, t, k in cur.fetchall()}
-    choix = fzf_select("🎞️ Épisode : ", list(e_map))
-    if choix:
-        lancer_mpv(choix, baseurl + e_map[choix])
-        return True
-    return False
+    episodes = cur.fetchall()
+    e_map = [(f"{i:02d}. {t}", k) for i, t, k in episodes]
 
+    choix = fzf_select("🎞️ Épisode : ", [label for label, _ in e_map])
+    if not choix:
+        return False
+
+    index = next((i for i, (label, _) in enumerate(e_map) if label == choix), None)
+    if index is None:
+        print("Épisode sélectionné introuvable.")
+        return False
+
+    while 0 <= index < len(e_map):
+        label, part_key = e_map[index]
+        print(f"Lecture : {label}")
+        lancer_mpv(label, baseurl + part_key)
+
+        next_action = fzf_select(
+            "⏮️ Précédent / ⏭️ Suivant / ❌ Quitter : ",
+            ["⏭️ Suivant", "⏮️ Précédent", "❌ Quitter"],
+            default_first=True
+        )
+        if next_action == "⏮️ Précédent":
+            index = max(0, index - 1)
+        elif next_action == "⏭️ Suivant":
+            index += 1
+        else:
+            break
+
+    return True
 
 while True:
     sel = fzf_select("🎯 Choisir : ", ["Films", "Séries"])
     if not sel: break
-    if sel == "Films": menu_films()
-    elif sel == "Séries": menu_series()
+    if sel == "Films":
+        menu_films()
+    elif sel == "Séries":
+        menu_series()
