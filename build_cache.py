@@ -1,9 +1,7 @@
-#!/usr/bin/env python3
 import sqlite3, os
 from plexapi.server import PlexServer
 import argparse
 
-# === CONFIGURATION ===
 config_dir = os.path.expanduser("~/.config/plex-minimal")
 os.makedirs(config_dir, exist_ok=True)
 token_path = os.path.join(config_dir, "token")
@@ -13,13 +11,11 @@ os.makedirs(cache_dir, exist_ok=True)
 db_path = os.path.join(cache_dir, "cache.db")
 tmp_db = db_path + ".tmp"
 
-# === ARGUMENTS ===
 parser = argparse.ArgumentParser(description="Génère la base Plex minimale")
 parser.add_argument("--baseurl", help="URL du serveur Plex")
 parser.add_argument("--token", help="Token d'authentification Plex")
 args = parser.parse_args()
 
-# Enregistrement si fourni
 if args.baseurl:
     with open(baseurl_path, "w") as f:
         f.write(args.baseurl.strip())
@@ -28,7 +24,6 @@ if args.token:
     with open(token_path, "w") as f:
         f.write(args.token.strip())
 
-# Lecture
 try:
     with open(baseurl_path) as f:
         baseurl = f.read().strip()
@@ -43,7 +38,6 @@ except FileNotFoundError:
     print("❌ token manquant.")
     exit(1)
 
-# === CONNEXION ET GÉNÉRATION ===
 plex = PlexServer(baseurl, token)
 
 with sqlite3.connect(tmp_db) as conn:
