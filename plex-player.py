@@ -1,27 +1,60 @@
 #!/usr/bin/env python3
-import sqlite3, subprocess, os
+import sqlite3, subprocess, os, argparse
 
-baseurl = 'http://192.168.1.2:32400'
-token_path = os.path.expanduser("~/.config/plex-minimal/token")
+# === CONFIGURATION ===
+config_dir = os.path.expanduser("~/.config/plex-minimal")
+os.makedirs(config_dir, exist_ok=True)
+token_path = os.path.join(config_dir, "token")
+baseurl_path = os.path.join(config_dir, "baseurl")
 db_path = os.path.expanduser("~/.cache/plex-minimal/cache.db")
 cache_script = os.environ.get("BUILD_CACHE", "build_cache.py")
 
-with open(token_path) as f:
-    token = f.read().strip()
+# === ARGUMENTS ===
+parser = argparse.ArgumentParser(description="Client Plex minimal avec MPV")
+parser.add_argument("--baseurl", help="URL du serveur Plex (ex: http://192.168.1.2:32400)")
+parser.add_argument("--token", help="Token Plex d'authentification")
+args = parser.parse_args()
 
+# Enregistrement des arguments si fournis
+if args.baseurl:
+    with open(baseurl_path, "w") as f:
+        f.write(args.baseurl.strip())
+
+if args.token:
+    with open(token_path, "w") as f:
+        f.write(args.token.strip())
+
+# Lecture de la configuration
+try:
+    with open(baseurl_path) as f:
+        baseurl = f.read().strip()
+except FileNotFoundError:
+    print("❌ baseurl manquant. Utilisez --baseurl pour l’enregistrer.")
+    exit(1)
+
+try:
+    with open(token_path) as f:
+        token = f.read().strip()
+except FileNotFoundError:
+    print("❌ token manquant. Utilisez --token pour l’enregistrer.")
+    exit(1)
+
+# === INITIALISATION DB ===
 if not os.path.exists(db_path):
     subprocess.run(["python3", cache_script], check=True)
 
 conn = sqlite3.connect(db_path)
 cur = conn.cursor()
 
+# Lancement script cache en fond
 subprocess.Popen(["python3", cache_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+# === UTILITAIRES ===
 def fzf_select(prompt, items, default_first=False):
     options = ["fzf", "--prompt=" + prompt]
     if default_first:
         options += ["--header-lines=1"]
-        items = [""] + items  
+        items = [""] + items
     result = subprocess.run(options, input="\n".join(items), text=True, capture_output=True)
     return result.stdout.strip() if result.returncode == 0 else None
 
@@ -32,6 +65,7 @@ def lancer_mpv(titre, url):
         f"--title={titre}", f"{url}?X-Plex-Token={token}"
     ])
 
+# === FILMS ===
 def menu_films():
     cur.execute("SELECT title, year, part_key FROM films ORDER BY title COLLATE NOCASE")
     items = [(f"{t} ({y})", k) for t, y, k in cur.fetchall()]
@@ -41,6 +75,7 @@ def menu_films():
         return True
     return False
 
+# === SÉRIES ===
 def menu_series():
     cur.execute("SELECT id, title FROM series ORDER BY title COLLATE NOCASE")
     series = cur.fetchall()
@@ -100,9 +135,9 @@ def menu_series():
         else:
             break
 
-
     return True
 
+# === MENU PRINCIPAL ===
 while True:
     sel = fzf_select("🎯 Choisir : ", ["Films", "Séries"])
     if not sel: break
