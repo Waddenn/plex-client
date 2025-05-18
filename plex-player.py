@@ -21,13 +21,14 @@ def fzf_select(prompt, items, default_first=False):
     options = ["fzf", "--prompt=" + prompt]
     if default_first:
         options += ["--header-lines=1"]
-        items = [""] + items  # Insert empty header line
+        items = [""] + items  
     result = subprocess.run(options, input="\n".join(items), text=True, capture_output=True)
     return result.stdout.strip() if result.returncode == 0 else None
 
 def lancer_mpv(titre, url):
     subprocess.run([
         "mpv", "--force-window=yes", "--hwdec=vaapi",
+        "--fullscreen",
         f"--title={titre}", f"{url}?X-Plex-Token={token}"
     ])
 
@@ -77,17 +78,28 @@ def menu_series():
         print(f"Lecture : {label}")
         lancer_mpv(label, baseurl + part_key)
 
+        # Définir les labels des épisodes voisins
+        prev_label = f"⏮️ Précédent : {e_map[index - 1][0]}" if index > 0 else None
+        next_label = f"⏭️ Suivant : {e_map[index + 1][0]}" if index < len(e_map) - 1 else None
+
+        options = []
+        if next_label: options.append(next_label)
+        if prev_label: options.append(prev_label)
+        options.append("❌ Quitter")
+
         next_action = fzf_select(
-            "⏮️ Précédent / ⏭️ Suivant / ❌ Quitter : ",
-            ["⏭️ Suivant", "⏮️ Précédent", "❌ Quitter"],
+            "▶️ Choix de l'action : ",
+            options,
             default_first=True
         )
-        if next_action == "⏮️ Précédent":
+
+        if next_action and next_action.startswith("⏮️"):
             index = max(0, index - 1)
-        elif next_action == "⏭️ Suivant":
+        elif next_action and next_action.startswith("⏭️"):
             index += 1
         else:
             break
+
 
     return True
 
