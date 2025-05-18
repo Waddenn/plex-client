@@ -9,16 +9,23 @@ cache_dir = os.path.expanduser("~/.cache/plex-minimal")
 db_path = os.path.join(cache_dir, "cache.db")
 tmp_db = db_path + ".tmp"
 
+# Ensure the cache directory exists
+os.makedirs(cache_dir, exist_ok=True)
+
+# Read the token
 with open(token_path) as f:
     token = f.read().strip()
 
 plex = PlexServer(baseurl, token)
-os.makedirs(cache_dir, exist_ok=True)
 
+# Connect to the temporary database
 conn = sqlite3.connect(tmp_db)
 cur = conn.cursor()
+
+# Enable WAL mode for better concurrency
 cur.execute("PRAGMA journal_mode=WAL;")
 
+# Create tables if they don't exist
 cur.executescript('''
 CREATE TABLE IF NOT EXISTS films (
     id INTEGER PRIMARY KEY,
@@ -44,15 +51,18 @@ CREATE TABLE IF NOT EXISTS episodes (
 );
 ''')
 
-with conn:
+# Insert data from Plex into the database
+try:
+    # Insert films
     for movie in plex.library.section('Films').all():
         try:
             p = movie.media[0].parts[0]
             cur.execute("INSERT INTO films VALUES (?, ?, ?, ?)",
                         (movie.ratingKey, movie.title, movie.year, p.key))
-        except:
-            pass
-
+        except Exception as e:
+            print(f"Error inserting movie: {e}")
+    
+    # Insert series
     for serie in plex.library.section('Séries').all():
         try:
             cur.execute("INSERT INTO series VALUES (?, ?)", (serie.ratingKey, serie.title))
@@ -64,11 +74,23 @@ with conn:
                         p = e.media[0].parts[0]
                         cur.execute("INSERT INTO episodes VALUES (?, ?, ?, ?, ?)",
                                     (e.ratingKey, saison.ratingKey, e.index, e.title, p.key))
-                    except:
-                        pass
-        except:
-            pass
+                    except Exception as e:
+                        print(f"Error inserting episode: {e}")
+        except Exception as e:
+            print(f"Error inserting series: {e}")
+    
+    conn.commit()
+except Exception as e:
+    print(f"Error during data insertion: {e}")
+finally:
+    conn.close()
 
-conn.close()
-
-os.replace(tmp_db, db_path)
+# Ensure the temporary database file is replaced only if the temporary database exists
+if os.path.exists(tmp_db):
+    try:
+        os.replace(tmp_db, db_path)
+        print(f"Replaced {tmp_db} with {db_path}")
+    except Exception as e:
+        print(f"Error replacing database: {e}")
+else:
+    print(f"Temporary database file {tmp_db} does not exist.")
