@@ -6,17 +6,18 @@ token = open(os.path.expanduser("~/.config/plex-minimal/token")).read().strip()
 db_path = os.path.expanduser("~/.cache/plex-minimal/cache.db")
 cache_script = os.environ.get("BUILD_CACHE", "build_cache.py")
 
+# Ensure the database exists, otherwise run the cache script
 if not os.path.exists(db_path):
     subprocess.run(["python3", cache_script], check=True)
 
 conn = sqlite3.connect(db_path)
 cur = conn.cursor()
 
+# Start the cache script in the background if not already running
 try:
-    subprocess.Popen(["python3", cache_script],
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-except:
-    pass
+    subprocess.Popen(["python3", cache_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+except Exception as e:
+    print(f"Error launching cache script: {e}")
 
 def fzf_select(prompt, items):
     fzf = subprocess.run(["fzf", "--prompt=" + prompt], input=items, text=True, capture_output=True)
