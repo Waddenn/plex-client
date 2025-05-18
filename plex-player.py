@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from plexapi.server import PlexServer
 import subprocess
 import os
@@ -11,17 +12,26 @@ with open(token_path) as f:
 plex = PlexServer(baseurl, token)
 movies = plex.library.section('Films').all()
 
+# Index des films
 movie_map = {f"{movie.title} ({movie.year})": movie for movie in movies}
 choices = "\n".join(movie_map.keys())
 
-fzf = subprocess.run(["fzf", "--prompt=Choisir un film : "], input=choices, text=True, capture_output=True)
+while True:
+    # Choix via fzf
+    fzf = subprocess.run(["fzf", "--prompt=Choisir un film : "], input=choices, text=True, capture_output=True)
 
-if fzf.returncode != 0:
-    print("Aucun film sélectionné.")
-    exit(0)
+    if fzf.returncode != 0:
+        print("Fermeture du programme.")
+        break
 
-selected = fzf.stdout.strip()
-media = movie_map[selected]
+    selected = fzf.stdout.strip()
+    media = movie_map[selected]
 
-url = media.getStreamURL()
-subprocess.run(["mpv", url])
+    url = media.getStreamURL()
+
+    # Lancement non bloquant
+    print(f"Lancement de {selected}...")
+    subprocess.Popen(["mpv", url])
+
+    # Petite pause ou message pour continuer
+    input("Appuie sur Entrée pour sélectionner un autre film, ou Ctrl+C pour quitter.")
