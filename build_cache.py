@@ -5,15 +5,17 @@ import os
 
 baseurl = 'http://192.168.1.2:32400'
 token_path = os.path.expanduser("~/.config/plex-minimal/token")
-db_path = os.path.expanduser("~/.cache/plex-minimal/cache.db")
+cache_dir = os.path.expanduser("~/.cache/plex-minimal")
+db_path = os.path.join(cache_dir, "cache.db")
+tmp_db = db_path + ".tmp"
 
 with open(token_path) as f:
     token = f.read().strip()
 
 plex = PlexServer(baseurl, token)
-os.makedirs(os.path.dirname(db_path), exist_ok=True)
+os.makedirs(cache_dir, exist_ok=True)
 
-conn = sqlite3.connect(db_path)
+conn = sqlite3.connect(tmp_db)
 cur = conn.cursor()
 cur.execute("PRAGMA journal_mode=WAL;")
 
@@ -43,15 +45,13 @@ CREATE TABLE IF NOT EXISTS episodes (
 ''')
 
 with conn:
-    for table in ("films", "series", "saisons", "episodes"):
-        cur.execute(f"DELETE FROM {table}")
-
     for movie in plex.library.section('Films').all():
         try:
             p = movie.media[0].parts[0]
             cur.execute("INSERT INTO films VALUES (?, ?, ?, ?)",
                         (movie.ratingKey, movie.title, movie.year, p.key))
-        except: pass
+        except:
+            pass
 
     for serie in plex.library.section('Séries').all():
         try:
@@ -64,7 +64,11 @@ with conn:
                         p = e.media[0].parts[0]
                         cur.execute("INSERT INTO episodes VALUES (?, ?, ?, ?, ?)",
                                     (e.ratingKey, saison.ratingKey, e.index, e.title, p.key))
-                    except: pass
-        except: pass
+                    except:
+                        pass
+        except:
+            pass
 
 conn.close()
+
+os.replace(tmp_db, db_path)
