@@ -1,106 +1,63 @@
 #!/usr/bin/env python3
-import sqlite3
-import subprocess
-import os
-import sys
+import sqlite3, subprocess, os, sys
 
 baseurl = 'http://192.168.1.2:32400'
-token_path = os.path.expanduser("~/.config/plex-minimal/token")
+token = open(os.path.expanduser("~/.config/plex-minimal/token")).read().strip()
 db_path = os.path.expanduser("~/.cache/plex-minimal/cache.db")
 cache_script = os.environ.get("BUILD_CACHE", "build_cache.py")
 
-# Lire le token
-with open(token_path) as f:
-    token = f.read().strip()
-
-# --refresh : met à jour la base
-if "--refresh" in sys.argv:
-    print("🔄 Rafraîchissement du cache Plex...")
+if not os.path.exists(db_path):
     subprocess.run(["python3", cache_script], check=True)
 
-# Connexion à la DB
 conn = sqlite3.connect(db_path)
 cur = conn.cursor()
 
+try:
+    subprocess.Popen(["python3", cache_script],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+except:
+    pass
+
+def fzf_select(prompt, items):
+    fzf = subprocess.run(["fzf", "--prompt=" + prompt], input=items, text=True, capture_output=True)
+    return fzf.stdout.strip() if fzf.returncode == 0 else None
+
 def lancer_mpv(titre, url):
-    print(f"Lancement de {titre} en lecture directe...")
     subprocess.Popen([
-        "mpv",
-        "--force-window=yes",
-        "--force-seekable=yes",
-        "--hwdec=vaapi",
-        "--msg-level=ffmpeg/video=error",
-        f"--title={titre}",
-        url
+        "mpv", "--force-window=yes", "--force-seekable=yes", "--hwdec=vaapi",
+        "--msg-level=ffmpeg/video=error", f"--title={titre}", url
     ])
 
 def menu_films():
     cur.execute("SELECT title, year, part_key FROM films ORDER BY title COLLATE NOCASE")
-    movies = cur.fetchall()
-    movie_map = {f"{title} ({year})": part_key for (title, year, part_key) in movies}
-    choices = "\n".join(movie_map.keys())
-
-    fzf = subprocess.run(["fzf", "--prompt=🎬 Choisir un film : "], input=choices, text=True, capture_output=True)
-    if fzf.returncode != 0:
-        return False
-
-    selected = fzf.stdout.strip()
-    part_key = movie_map[selected]
-    url = f"{baseurl}{part_key}?X-Plex-Token={token}"
-    lancer_mpv(selected, url)
+    items = [(f"{t} ({y})", k) for t, y, k in cur.fetchall()]
+    choix = fzf_select("🎬 Choisir un film : ", "\n".join(t for t, _ in items))
+    if not choix: return False
+    lancer_mpv(choix, f"{baseurl}{dict(items)[choix]}?X-Plex-Token={token}")
     return True
 
 def menu_series():
     cur.execute("SELECT id, title FROM series ORDER BY title COLLATE NOCASE")
     series = cur.fetchall()
-    serie_map = {title: id for id, title in series}
-    choices = "\n".join(serie_map.keys())
+    s_id = dict((t, i) for i, t in series).get(fzf_select("📺 Choisir une série : ", "\n".join(t for _, t in series)))
+    if not s_id: return False
 
-    fzf = subprocess.run(["fzf", "--prompt=📺 Choisir une série : "], input=choices, text=True, capture_output=True)
-    if fzf.returncode != 0:
-        return False
-
-    serie_title = fzf.stdout.strip()
-    serie_id = serie_map[serie_title]
-
-    cur.execute("SELECT id, saison_index FROM saisons WHERE serie_id = ? ORDER BY saison_index", (serie_id,))
+    cur.execute("SELECT id, saison_index FROM saisons WHERE serie_id = ? ORDER BY saison_index", (s_id,))
     saisons = cur.fetchall()
-    saison_map = {f"Saison {index}": id for id, index in saisons}
-    saison_choices = "\n".join(saison_map.keys())
+    sa_id = dict((f"Saison {i}", sid) for sid, i in saisons).get(
+        fzf_select("📂 Choisir une saison : ", "\n".join(f"Saison {i}" for _, i in saisons)))
+    if not sa_id: return False
 
-    fzf = subprocess.run(["fzf", "--prompt=📂 Choisir une saison : "], input=saison_choices, text=True, capture_output=True)
-    if fzf.returncode != 0:
-        return False
-
-    saison_id = saison_map[fzf.stdout.strip()]
-
-    cur.execute("SELECT episode_index, title, part_key FROM episodes WHERE saison_id = ? ORDER BY episode_index", (saison_id,))
+    cur.execute("SELECT episode_index, title, part_key FROM episodes WHERE saison_id = ? ORDER BY episode_index", (sa_id,))
     episodes = cur.fetchall()
-    episode_map = {f"{index:02d}. {title}": part_key for index, title, part_key in episodes}
-    episode_choices = "\n".join(episode_map.keys())
-
-    fzf = subprocess.run(["fzf", "--prompt=🎞️ Choisir un épisode : "], input=episode_choices, text=True, capture_output=True)
-    if fzf.returncode != 0:
-        return False
-
-    selected = fzf.stdout.strip()
-    part_key = episode_map[selected]
-    url = f"{baseurl}{part_key}?X-Plex-Token={token}"
-    lancer_mpv(selected, url)
+    e_map = {f"{i:02d}. {t}": k for i, t, k in episodes}
+    choix = fzf_select("🎞️ Choisir un épisode : ", "\n".join(e_map))
+    if not choix: return False
+    lancer_mpv(choix, f"{baseurl}{e_map[choix]}?X-Plex-Token={token}")
     return True
 
-# === Menu principal ===
 while True:
-    choix = subprocess.run(["fzf", "--prompt=🎯 Choisir contenu : ", "--height=10%"], input="Films\nSéries", text=True, capture_output=True)
-    if choix.returncode != 0:
-        print("Fermeture du programme.")
-        break
-
-    lancer = False
-    if choix.stdout.strip() == "Films":
-        lancer = menu_films()
-    elif choix.stdout.strip() == "Séries":
-        lancer = menu_series()
-
-    if lancer:
-        input("Appuie sur Entrée pour revenir au menu principal, ou Ctrl+C pour quitter.")
+    sel = fzf_select("🎯 Choisir contenu : ", "Films\nSéries")
+    if not sel: break
+    if (sel == "Films" and menu_films()) or (sel == "Séries" and menu_series()):
+        input()
