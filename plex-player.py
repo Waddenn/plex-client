@@ -110,12 +110,11 @@ cur = conn.cursor()
 cur.execute("SELECT title, year, duration, summary, rating, genres, originallyAvailableAt FROM films WHERE title = ?", (title,))
 row = cur.fetchone()
 if row:
-    print(f"🎬 {{row[0]}} ({{row[1]}})")
+    print(f"🎬 {{row[0]}} ({{row[1]}})\\n")
     print(f"🕒 Duration: {{int(row[2]/60000)}} min")
     print(f"⭐ Rating: {{row[4]}}")
     print(f"🎭 Genres: {{row[5]}}")
-    print(f"📅 Date: {{row[6]}}")
-    print()
+    print(f"📅 Date: {{row[6]}}\\n")
     print("🧾 Synopsis:")
     print("─" * 72)
     wrapped = textwrap.wrap(row[3] or "", width=72)
@@ -126,6 +125,7 @@ if row:
 else:
     print("No metadata found.")
 ' {{}}"""
+
 
     choice = fzf_select(
         "🎬 Movie: ", [i[0] for i in items], preview_cmd=preview_script.strip()
