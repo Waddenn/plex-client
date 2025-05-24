@@ -12,3 +12,5 @@ A minimalist Plex client that uses MPV and FZF for command-line navigation.
 nix run github:Waddenn/plex-client#plex-minimal -- \
   --baseurl http://localhost:32400 \
   --token YOUR_PLEX_TOKEN
+
+![2025-05-24_23:53:54](https://github.com/user-attachments/assets/29ea301f-5c24-49ee-b871-9a5fbebad97c)
