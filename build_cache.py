@@ -1,7 +1,8 @@
-# build_cache
-import sqlite3, os
-from plexapi.server import PlexServer
+# build_cache.py
+import os
+import sqlite3
 import argparse
+from plexapi.server import PlexServer
 
 CONFIG_DIR = os.path.expanduser("~/.config/plex-minimal")
 CACHE_DIR = os.path.expanduser("~/.cache/plex-minimal")
@@ -73,10 +74,32 @@ with sqlite3.connect(DB_PATH) as conn:
             originallyAvailableAt TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS series (id INTEGER PRIMARY KEY, title TEXT);
-        CREATE TABLE IF NOT EXISTS saisons (id INTEGER PRIMARY KEY, serie_id INTEGER, saison_index INTEGER);
-        CREATE TABLE IF NOT EXISTS episodes (id INTEGER PRIMARY KEY, saison_id INTEGER, episode_index INTEGER, title TEXT, part_key TEXT);
-    """
+        CREATE TABLE IF NOT EXISTS series (
+            id INTEGER PRIMARY KEY,
+            title TEXT,
+            summary TEXT,
+            rating REAL,
+            genres TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS saisons (
+            id INTEGER PRIMARY KEY,
+            serie_id INTEGER,
+            saison_index INTEGER,
+            summary TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS episodes (
+            id INTEGER PRIMARY KEY,
+            saison_id INTEGER,
+            episode_index INTEGER,
+            title TEXT,
+            part_key TEXT,
+            duration INTEGER,
+            summary TEXT,
+            rating REAL
+        );
+        """
     )
 
     existing_movies = {row[0] for row in cur.execute("SELECT id FROM films")}
@@ -112,8 +135,16 @@ with sqlite3.connect(DB_PATH) as conn:
         if serie.ratingKey in existing_series:
             continue
         try:
+            genres = ", ".join([g.tag for g in serie.genres]) if serie.genres else ""
             cur.execute(
-                "INSERT INTO series VALUES (?, ?)", (serie.ratingKey, serie.title)
+                "INSERT INTO series VALUES (?, ?, ?, ?, ?)",
+                (
+                    serie.ratingKey,
+                    serie.title,
+                    serie.summary,
+                    serie.rating,
+                    genres,
+                ),
             )
             log_debug(f"📺 Added series: {serie.title}")
 
@@ -121,8 +152,8 @@ with sqlite3.connect(DB_PATH) as conn:
                 if saison.ratingKey in existing_seasons:
                     continue
                 cur.execute(
-                    "INSERT INTO saisons VALUES (?, ?, ?)",
-                    (saison.ratingKey, serie.ratingKey, saison.index),
+                    "INSERT INTO saisons VALUES (?, ?, ?, ?)",
+                    (saison.ratingKey, serie.ratingKey, saison.index, saison.summary),
                 )
                 log_debug(f"  ↳ Season {saison.index}")
 
@@ -132,8 +163,17 @@ with sqlite3.connect(DB_PATH) as conn:
                     try:
                         p = e.media[0].parts[0]
                         cur.execute(
-                            "INSERT INTO episodes VALUES (?, ?, ?, ?, ?)",
-                            (e.ratingKey, saison.ratingKey, e.index, e.title, p.key),
+                            "INSERT INTO episodes VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                e.ratingKey,
+                                saison.ratingKey,
+                                e.index,
+                                e.title,
+                                p.key,
+                                e.duration,
+                                e.summary,
+                                e.rating,
+                            ),
                         )
                         log_debug(f"    ↳ Episode {e.index}: {e.title}")
                     except Exception as ex:

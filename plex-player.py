@@ -1,4 +1,4 @@
-# plex-player
+# plex-player.py
 import sqlite3, subprocess, os, argparse
 
 CONFIG_DIR = os.path.expanduser("~/.config/plex-minimal")
@@ -95,7 +95,6 @@ def lancer_mpv(title, url):
 
 
 def menu_films():
-
     cur.execute("SELECT title, year FROM films ORDER BY title COLLATE NOCASE")
     films = cur.fetchall()
     items = [(f"{title} ({year})", title) for title, year in films]
@@ -144,7 +143,33 @@ else:
 def menu_series():
     cur.execute("SELECT id, title FROM series ORDER BY title COLLATE NOCASE")
     series = cur.fetchall()
-    title = fzf_select("📺 Series: ", [t for _, t in series])
+    title = fzf_select(
+        "📺 Series: ",
+        [t for _, t in series],
+        preview_cmd=f"""
+python3 -c '
+import sqlite3, sys, textwrap
+db = "{DB_PATH}"
+title = sys.argv[1]
+conn = sqlite3.connect(db)
+cur = conn.cursor()
+cur.execute("SELECT title, summary, rating, genres FROM series WHERE title = ?", (title,))
+row = cur.fetchone()
+if row:
+    print(f"📺 {{row[0]}}\\n")
+    print(f"⭐ Rating: {{row[2]}}")
+    print(f"🎭 Genres: {{row[3]}}\\n")
+    print("🧾 Synopsis:")
+    print("─" * 72)
+    wrapped = textwrap.wrap(row[1] or "", width=72)
+    for line in wrapped[:15]:
+        print("  " + line)
+    if len(wrapped) > 15:
+        print("  [...]")
+else:
+    print("No metadata found.")
+' {{}}""".strip(),
+    )
     if not title:
         return False
 
@@ -164,23 +189,50 @@ def menu_series():
     sa_id = dict((f"Season {i}", sid) for sid, i in seasons)[label]
 
     cur.execute(
-        "SELECT episode_index, title, part_key FROM episodes WHERE saison_id = ? ORDER BY episode_index",
+        "SELECT episode_index, title, part_key, duration, summary, rating FROM episodes WHERE saison_id = ? ORDER BY episode_index",
         (sa_id,),
     )
     episodes = cur.fetchall()
-    e_map = [(f"{i:02d}. {t}", k) for i, t, k in episodes]
+    e_map = [(f"{i:02d}. {t}", k, d, s, r) for i, t, k, d, s, r in episodes]
 
-    choice = fzf_select("🎞️ Episode: ", [label for label, _ in e_map])
+    choice = fzf_select(
+        "🎞️ Episode: ",
+        [label for label, *_ in e_map],
+        preview_cmd=f"""
+python3 -c '
+import sqlite3, sys, textwrap
+db = "{DB_PATH}"
+ep = sys.argv[1]
+idx = int(ep.split(".")[0])
+conn = sqlite3.connect(db)
+cur = conn.cursor()
+cur.execute("SELECT title, duration, summary, rating FROM episodes WHERE episode_index = ? AND saison_id = ?", (idx, {sa_id}))
+row = cur.fetchone()
+if row:
+    print(f"🎞️ {{row[0]}}\\n")
+    print(f"🕒 Duration: {{int(row[1]/60000)}} min")
+    print(f"⭐ Rating: {{row[3]}}\\n")
+    print("🧾 Synopsis:")
+    print("─" * 72)
+    wrapped = textwrap.wrap(row[2] or "", width=72)
+    for line in wrapped[:15]:
+        print("  " + line)
+    if len(wrapped) > 15:
+        print("  [...]")
+else:
+    print("No metadata found.")
+' {{}}""".strip(),
+    )
     if not choice:
         return False
 
-    index = next((i for i, (label, _) in enumerate(e_map) if label == choice), None)
+    index = next((i for i, (label, *_) in enumerate(e_map) if label == choice), None)
     if index is None:
         print("Selected episode not found.")
         return False
 
     while 0 <= index < len(e_map):
-        label, part_key = e_map[index]
+        label, part_key, *_ = e_map[index]
         print(f"Playing: {label}")
         lancer_mpv(label, baseurl + part_key)
 
