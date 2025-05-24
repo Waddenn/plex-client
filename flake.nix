@@ -1,3 +1,4 @@
+#flake.nix
 {
   description = "Minimal Plex client with mpv";
 
