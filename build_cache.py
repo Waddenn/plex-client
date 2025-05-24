@@ -2,45 +2,49 @@ import sqlite3, os
 from plexapi.server import PlexServer
 import argparse
 
-config_dir = os.path.expanduser("~/.config/plex-minimal")
-os.makedirs(config_dir, exist_ok=True)
-token_path = os.path.join(config_dir, "token")
-baseurl_path = os.path.join(config_dir, "baseurl")
-cache_dir = os.path.expanduser("~/.cache/plex-minimal")
-os.makedirs(cache_dir, exist_ok=True)
-db_path = os.path.join(cache_dir, "cache.db")
-tmp_db = db_path + ".tmp"
+CONFIG_DIR = os.path.expanduser("~/.config/plex-minimal")
+CACHE_DIR = os.path.expanduser("~/.cache/plex-minimal")
+os.makedirs(CONFIG_DIR, exist_ok=True)
+os.makedirs(CACHE_DIR, exist_ok=True)
+TOKEN_PATH = os.path.join(CONFIG_DIR, "token")
+BASEURL_PATH = os.path.join(CONFIG_DIR, "baseurl")
+DB_PATH = os.path.join(CACHE_DIR, "cache.db")
+TMP_DB = DB_PATH + ".tmp"
 
-parser = argparse.ArgumentParser(description="Génère la base Plex minimale")
-parser.add_argument("--baseurl", help="URL du serveur Plex")
-parser.add_argument("--token", help="Token d'authentification Plex")
-args = parser.parse_args()
+def save_config(path, value):
+    with open(path, "w") as f:
+        f.write(value.strip())
+
+def load_config(path, missing_msg=None):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        if missing_msg:
+            print(missing_msg)
+        return None
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Génère la base Plex minimale")
+    parser.add_argument("--baseurl", help="URL du serveur Plex")
+    parser.add_argument("--token", help="Token d'authentification Plex")
+    return parser.parse_args()
+
+args = parse_args()
 
 if args.baseurl:
-    with open(baseurl_path, "w") as f:
-        f.write(args.baseurl.strip())
-
+    save_config(BASEURL_PATH, args.baseurl)
 if args.token:
-    with open(token_path, "w") as f:
-        f.write(args.token.strip())
+    save_config(TOKEN_PATH, args.token)
 
-try:
-    with open(baseurl_path) as f:
-        baseurl = f.read().strip()
-except FileNotFoundError:
-    print("❌ baseurl manquant.")
-    exit(1)
-
-try:
-    with open(token_path) as f:
-        token = f.read().strip()
-except FileNotFoundError:
-    print("❌ token manquant.")
+baseurl = load_config(BASEURL_PATH, "❌ baseurl manquant.")
+token = load_config(TOKEN_PATH, "❌ token manquant.")
+if not baseurl or not token:
     exit(1)
 
 plex = PlexServer(baseurl, token)
 
-with sqlite3.connect(tmp_db) as conn:
+with sqlite3.connect(TMP_DB) as conn:
     cur = conn.cursor()
     cur.executescript('''
         CREATE TABLE IF NOT EXISTS films (id INTEGER PRIMARY KEY, title TEXT, year INTEGER, part_key TEXT);
@@ -74,4 +78,4 @@ with sqlite3.connect(tmp_db) as conn:
 
     conn.commit()
 
-os.replace(tmp_db, db_path)
+os.replace(TMP_DB, DB_PATH)

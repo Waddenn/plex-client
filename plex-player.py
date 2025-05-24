@@ -1,46 +1,57 @@
 import sqlite3, subprocess, os, argparse
 
-config_dir = os.path.expanduser("~/.config/plex-minimal")
-os.makedirs(config_dir, exist_ok=True)
-token_path = os.path.join(config_dir, "token")
-baseurl_path = os.path.join(config_dir, "baseurl")
-db_path = os.path.expanduser("~/.cache/plex-minimal/cache.db")
-cache_script = os.environ.get("BUILD_CACHE", "build_cache.py")
+CONFIG_DIR = os.path.expanduser("~/.config/plex-minimal")
+CACHE_DIR = os.path.expanduser("~/.cache/plex-minimal")
+os.makedirs(CONFIG_DIR, exist_ok=True)
+os.makedirs(CACHE_DIR, exist_ok=True)
+TOKEN_PATH = os.path.join(CONFIG_DIR, "token")
+BASEURL_PATH = os.path.join(CONFIG_DIR, "baseurl")
+DB_PATH = os.path.join(CACHE_DIR, "cache.db")
+CACHE_SCRIPT = os.environ.get("BUILD_CACHE", "build_cache.py")
 
-parser = argparse.ArgumentParser(description="Client Plex minimal avec MPV")
-parser.add_argument("--baseurl", help="URL du serveur Plex (ex: http://192.168.1.2:32400)")
-parser.add_argument("--token", help="Token Plex d'authentification")
-args = parser.parse_args()
+def save_config(path, value):
+    with open(path, "w") as f:
+        f.write(value.strip())
+
+def load_config(path, missing_msg=None):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        if missing_msg:
+            print(missing_msg)
+        return None
+
+def ensure_db_exists(db_path, cache_script):
+    if not os.path.exists(db_path):
+        subprocess.run(["python3", cache_script], check=True)
+
+def get_db_connection(db_path):
+    return sqlite3.connect(db_path)
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Client Plex minimal avec MPV")
+    parser.add_argument("--baseurl", help="URL du serveur Plex (ex: http://192.168.1.2:32400)")
+    parser.add_argument("--token", help="Token Plex d'authentification")
+    return parser.parse_args()
+
+args = parse_args()
 
 if args.baseurl:
-    with open(baseurl_path, "w") as f:
-        f.write(args.baseurl.strip())
-
+    save_config(BASEURL_PATH, args.baseurl)
 if args.token:
-    with open(token_path, "w") as f:
-        f.write(args.token.strip())
+    save_config(TOKEN_PATH, args.token)
 
-try:
-    with open(baseurl_path) as f:
-        baseurl = f.read().strip()
-except FileNotFoundError:
-    print("❌ baseurl manquant. Utilisez --baseurl pour l’enregistrer.")
+baseurl = load_config(BASEURL_PATH, "❌ baseurl manquant. Utilisez --baseurl pour l’enregistrer.")
+token = load_config(TOKEN_PATH, "❌ token manquant. Utilisez --token pour l’enregistrer.")
+if not baseurl or not token:
     exit(1)
 
-try:
-    with open(token_path) as f:
-        token = f.read().strip()
-except FileNotFoundError:
-    print("❌ token manquant. Utilisez --token pour l’enregistrer.")
-    exit(1)
-
-if not os.path.exists(db_path):
-    subprocess.run(["python3", cache_script], check=True)
-
-conn = sqlite3.connect(db_path)
+ensure_db_exists(DB_PATH, CACHE_SCRIPT)
+conn = get_db_connection(DB_PATH)
 cur = conn.cursor()
 
-subprocess.Popen(["python3", cache_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+subprocess.Popen(["python3", CACHE_SCRIPT], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def fzf_select(prompt, items, default_first=False):
     options = ["fzf", "--prompt=" + prompt]
