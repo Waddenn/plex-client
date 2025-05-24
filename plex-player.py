@@ -1,3 +1,4 @@
+#plex-player
 import sqlite3, subprocess, os, argparse
 
 CONFIG_DIR = os.path.expanduser("~/.config/plex-minimal")
