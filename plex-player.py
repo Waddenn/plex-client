@@ -126,8 +126,6 @@ else:
     print("No metadata found.")
 ' {{}}"""
 
-
-
     choice = fzf_select(
         "🎬 Movie: ", [i[0] for i in items], preview_cmd=preview_script.strip()
     )
