@@ -1,4 +1,3 @@
-
 import sqlite3, subprocess, os, argparse
 
 CONFIG_DIR = os.path.expanduser("~/.config/plex-minimal")
@@ -24,10 +23,10 @@ def load_config(path, missing_msg=None):
         return None
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Client Plex minimal avec MPV")
-    parser.add_argument("--baseurl", help="URL du serveur Plex (ex: http://192.168.1.2:32400)")
-    parser.add_argument("--token", help="Token Plex d'authentification")
-    parser.add_argument("--debug", action="store_true", help="Afficher les logs détaillés")
+    parser = argparse.ArgumentParser(description="Minimal Plex client with MPV")
+    parser.add_argument("--baseurl", help="Plex server URL (e.g. http://192.168.1.2:32400)")
+    parser.add_argument("--token", help="Plex authentication token")
+    parser.add_argument("--debug", action="store_true", help="Show detailed logs")
     return parser.parse_args()
 
 args = parse_args()
@@ -41,20 +40,20 @@ if args.baseurl:
 if args.token:
     save_config(TOKEN_PATH, args.token)
 
-baseurl = load_config(BASEURL_PATH, "❌ baseurl manquant. Utilisez --baseurl pour l’enregistrer.")
-token = load_config(TOKEN_PATH, "❌ token manquant. Utilisez --token pour l’enregistrer.")
+baseurl = load_config(BASEURL_PATH, "❌ Missing baseurl. Use --baseurl to save it.")
+token = load_config(TOKEN_PATH, "❌ Missing token. Use --token to save it.")
 if not baseurl or not token:
     exit(1)
 
 if not os.path.exists(DB_PATH):
-    log_debug("Base de données absente. Génération...")
+    log_debug("Database missing. Generating...")
     subprocess.run(["python3", CACHE_SCRIPT], check=True)
 
 conn = sqlite3.connect(DB_PATH)
 cur = conn.cursor()
 
 subprocess.Popen(["python3", CACHE_SCRIPT], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-log_debug("Mise à jour du cache lancée en tâche de fond.")
+log_debug("Cache update started in background.")
 
 def fzf_select(prompt, items, default_first=False):
     options = ["fzf", "--prompt=" + prompt]
@@ -64,69 +63,69 @@ def fzf_select(prompt, items, default_first=False):
     result = subprocess.run(options, input="\n".join(items), text=True, capture_output=True)
     return result.stdout.strip() if result.returncode == 0 else None
 
-def lancer_mpv(titre, url):
-    log_debug(f"Lancement MPV : {titre} - {url}")
+def lancer_mpv(title, url):
+    log_debug(f"Launching MPV: {title} - {url}")
     subprocess.run([
         "mpv", "--force-window=yes", "--hwdec=vaapi",
         "--fullscreen",
-        f"--title={titre}", f"{url}?X-Plex-Token={token}"
+        f"--title={title}", f"{url}?X-Plex-Token={token}"
     ])
 
 def menu_films():
     cur.execute("SELECT title, year, part_key FROM films ORDER BY title COLLATE NOCASE")
     items = [(f"{t} ({y})", k) for t, y, k in cur.fetchall()]
-    choix = fzf_select("🎬 Film : ", [i[0] for i in items])
-    if choix:
-        lancer_mpv(choix, baseurl + dict(items)[choix])
+    choice = fzf_select("🎬 Movie: ", [i[0] for i in items])
+    if choice:
+        lancer_mpv(choice, baseurl + dict(items)[choice])
         return True
     return False
 
 def menu_series():
     cur.execute("SELECT id, title FROM series ORDER BY title COLLATE NOCASE")
     series = cur.fetchall()
-    titre = fzf_select("📺 Série : ", [t for _, t in series])
-    if not titre:
+    title = fzf_select("📺 Series: ", [t for _, t in series])
+    if not title:
         return False
 
-    s_id = dict((t, i) for i, t in series).get(titre)
+    s_id = dict((t, i) for i, t in series).get(title)
     if not s_id:
-        print(f"Série introuvable : {titre}")
+        print(f"Series not found: {title}")
         return False
 
     cur.execute("SELECT id, saison_index FROM saisons WHERE serie_id = ? ORDER BY saison_index", (s_id,))
-    saisons = cur.fetchall()
-    label = fzf_select("📂 Saison : ", [f"Saison {i}" for _, i in saisons])
+    seasons = cur.fetchall()
+    label = fzf_select("📂 Season: ", [f"Season {i}" for _, i in seasons])
     if not label:
         return False
-    sa_id = dict((f"Saison {i}", sid) for sid, i in saisons)[label]
+    sa_id = dict((f"Season {i}", sid) for sid, i in seasons)[label]
 
     cur.execute("SELECT episode_index, title, part_key FROM episodes WHERE saison_id = ? ORDER BY episode_index", (sa_id,))
     episodes = cur.fetchall()
     e_map = [(f"{i:02d}. {t}", k) for i, t, k in episodes]
 
-    choix = fzf_select("🎞️ Épisode : ", [label for label, _ in e_map])
-    if not choix:
+    choice = fzf_select("🎞️ Episode: ", [label for label, _ in e_map])
+    if not choice:
         return False
 
-    index = next((i for i, (label, _) in enumerate(e_map) if label == choix), None)
+    index = next((i for i, (label, _) in enumerate(e_map) if label == choice), None)
     if index is None:
-        print("Épisode sélectionné introuvable.")
+        print("Selected episode not found.")
         return False
 
     while 0 <= index < len(e_map):
         label, part_key = e_map[index]
-        print(f"Lecture : {label}")
+        print(f"Playing: {label}")
         lancer_mpv(label, baseurl + part_key)
 
-        prev_label = f"⏮️ Précédent : {e_map[index - 1][0]}" if index > 0 else None
-        next_label = f"⏭️ Suivant : {e_map[index + 1][0]}" if index < len(e_map) - 1 else None
+        prev_label = f"⏮️ Previous: {e_map[index - 1][0]}" if index > 0 else None
+        next_label = f"⏭️ Next: {e_map[index + 1][0]}" if index < len(e_map) - 1 else None
 
         options = []
         if next_label: options.append(next_label)
         if prev_label: options.append(prev_label)
-        options.append("❌ Quitter")
+        options.append("❌ Quit")
 
-        next_action = fzf_select("▶️ Choix de l'action : ", options, default_first=True)
+        next_action = fzf_select("▶️ Choose action: ", options, default_first=True)
 
         if next_action and next_action.startswith("⏮️"):
             index = max(0, index - 1)
@@ -138,9 +137,9 @@ def menu_series():
     return True
 
 while True:
-    sel = fzf_select("🎯 Choisir : ", ["Films", "Séries"])
+    sel = fzf_select("🎯 Choose: ", ["Movies", "Series"])
     if not sel: break
-    if sel == "Films":
+    if sel == "Movies":
         menu_films()
-    elif sel == "Séries":
+    elif sel == "Series":
         menu_series()

@@ -25,10 +25,10 @@ def load_config(path, missing_msg=None):
         return None
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Génère la base Plex minimale")
-    parser.add_argument("--baseurl", help="URL du serveur Plex")
-    parser.add_argument("--token", help="Token d'authentification Plex")
-    parser.add_argument("--debug", action="store_true", help="Afficher les logs détaillés")
+    parser = argparse.ArgumentParser(description="Generate minimal Plex database")
+    parser.add_argument("--baseurl", help="Plex server URL")
+    parser.add_argument("--token", help="Plex authentication token")
+    parser.add_argument("--debug", action="store_true", help="Show detailed logs")
     return parser.parse_args()
 
 args = parse_args()
@@ -42,14 +42,14 @@ if args.baseurl:
 if args.token:
     save_config(TOKEN_PATH, args.token)
 
-baseurl = load_config(BASEURL_PATH, "❌ baseurl manquant.")
-token = load_config(TOKEN_PATH, "❌ token manquant.")
+baseurl = load_config(BASEURL_PATH, "❌ Missing baseurl.")
+token = load_config(TOKEN_PATH, "❌ Missing token.")
 if not baseurl or not token:
     exit(1)
 
-log_debug("Connexion au serveur Plex...")
+log_debug("Connecting to Plex server...")
 plex = PlexServer(baseurl, token)
-log_debug("Connexion établie.")
+log_debug("Connection established.")
 
 with sqlite3.connect(TMP_DB) as conn:
     cur = conn.cursor()
@@ -64,30 +64,30 @@ with sqlite3.connect(TMP_DB) as conn:
         try:
             p = movie.media[0].parts[0]
             cur.execute("INSERT INTO films VALUES (?, ?, ?, ?)", (movie.ratingKey, movie.title, movie.year, p.key))
-            log_debug(f"Ajout film : {movie.title} ({movie.year})")
+            log_debug(f"Added movie: {movie.title} ({movie.year})")
         except Exception as e:
-            log_debug(f"❌ Erreur ajout film {movie.title} : {e}")
+            log_debug(f"❌ Error adding movie {movie.title}: {e}")
 
     for serie in plex.library.section('Séries').all():
         try:
             cur.execute("INSERT INTO series VALUES (?, ?)", (serie.ratingKey, serie.title))
-            log_debug(f"Ajout série : {serie.title}")
+            log_debug(f"Added series: {serie.title}")
             for saison in serie.seasons():
                 cur.execute("INSERT INTO saisons VALUES (?, ?, ?)", (saison.ratingKey, serie.ratingKey, saison.index))
-                log_debug(f"  ↳ Saison {saison.index}")
+                log_debug(f"  ↳ Season {saison.index}")
                 for e in saison.episodes():
                     try:
                         p = e.media[0].parts[0]
                         cur.execute("INSERT INTO episodes VALUES (?, ?, ?, ?, ?)", (
                             e.ratingKey, saison.ratingKey, e.index, e.title, p.key
                         ))
-                        log_debug(f"    ↳ Épisode {e.index} : {e.title}")
+                        log_debug(f"    ↳ Episode {e.index}: {e.title}")
                     except Exception as ex:
-                        log_debug(f"❌ Erreur épisode {e.title} : {ex}")
+                        log_debug(f"❌ Error episode {e.title}: {ex}")
         except Exception as e:
-            log_debug(f"❌ Erreur série {serie.title} : {e}")
+            log_debug(f"❌ Error series {serie.title}: {e}")
 
     conn.commit()
 
 os.replace(TMP_DB, DB_PATH)
-log_debug("Base de données mise à jour.")
+log_debug("Database updated.")
