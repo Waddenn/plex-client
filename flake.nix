@@ -1,5 +1,5 @@
 {
-  description = "Client Plex minimal avec mpv";
+  description = "Minimal Plex client with mpv";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
 
