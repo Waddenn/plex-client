@@ -56,13 +56,16 @@ cur = conn.cursor()
 subprocess.Popen(["python3", CACHE_SCRIPT], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 log_debug("Cache update started in background.")
 
-def fzf_select(prompt, items, default_first=False):
+def fzf_select(prompt, items, default_first=False, preview_cmd=None):
     options = ["fzf", "--prompt=" + prompt]
     if default_first:
         options += ["--header-lines=1"]
         items = [""] + items
+    if preview_cmd:
+        options += ["--preview", preview_cmd]
     result = subprocess.run(options, input="\n".join(items), text=True, capture_output=True)
     return result.stdout.strip() if result.returncode == 0 else None
+
 
 def lancer_mpv(title, url):
     log_debug(f"Launching MPV: {title} - {url}")
@@ -73,13 +76,46 @@ def lancer_mpv(title, url):
     ])
 
 def menu_films():
-    cur.execute("SELECT title, year, part_key FROM films ORDER BY title COLLATE NOCASE")
-    items = [(f"{t} ({y})", k) for t, y, k in cur.fetchall()]
-    choice = fzf_select("🎬 Movie: ", [i[0] for i in items])
+    cur.execute("SELECT title, year FROM films ORDER BY title COLLATE NOCASE")
+    films = cur.fetchall()
+    items = [(f"{title} ({year})", title) for title, year in films]
+
+    preview_script = f"""
+python3 -c '
+import sqlite3, sys, textwrap
+db = "{DB_PATH}"
+title = sys.argv[1].rsplit(" (", 1)[0]
+conn = sqlite3.connect(db)
+cur = conn.cursor()
+cur.execute("SELECT title, year, duration, summary, rating, genres, originallyAvailableAt FROM films WHERE title = ?", (title,))
+row = cur.fetchone()
+if row:
+    print(f"🎬 {{row[0]}} ({{row[1]}})")
+    print(f"🕒 Duration: {{int(row[2]/60000)}} min")
+    print(f"⭐ Rating: {{row[4]}}")
+    print(f"🎭 Genres: {{row[5]}}")
+    print(f"📅 Date: {{row[6]}}\\n")
+    if row[3]:
+        print("🧾 Synopsis:")
+        print(textwrap.fill(row[3], width=80, initial_indent="  ", subsequent_indent="  "))
+else:
+    print("No metadata found.")
+' {{}}"""
+
+
+    choice = fzf_select("🎬 Movie: ", [i[0] for i in items], preview_cmd=preview_script.strip())
     if choice:
-        lancer_mpv(choice, baseurl + dict(items)[choice])
+        selected_title = dict(items)[choice]
+        cur.execute("SELECT part_key FROM films WHERE title = ?", (selected_title,))
+        row = cur.fetchone()
+        if not row:
+            print("Selected film not found in database.")
+            return False
+        lancer_mpv(choice, baseurl + row[0])
         return True
     return False
+
+
 
 def menu_series():
     cur.execute("SELECT id, title FROM series ORDER BY title COLLATE NOCASE")

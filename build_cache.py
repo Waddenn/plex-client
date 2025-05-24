@@ -53,7 +53,18 @@ log_debug("Connection established.")
 with sqlite3.connect(DB_PATH) as conn:
     cur = conn.cursor()
     cur.executescript('''
-        CREATE TABLE IF NOT EXISTS films (id INTEGER PRIMARY KEY, title TEXT, year INTEGER, part_key TEXT);
+        CREATE TABLE IF NOT EXISTS films (
+            id INTEGER PRIMARY KEY,
+            title TEXT,
+            year INTEGER,
+            part_key TEXT,
+            duration INTEGER,
+            summary TEXT,
+            rating REAL,
+            genres TEXT,
+            originallyAvailableAt TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS series (id INTEGER PRIMARY KEY, title TEXT);
         CREATE TABLE IF NOT EXISTS saisons (id INTEGER PRIMARY KEY, serie_id INTEGER, saison_index INTEGER);
         CREATE TABLE IF NOT EXISTS episodes (id INTEGER PRIMARY KEY, saison_id INTEGER, episode_index INTEGER, title TEXT, part_key TEXT);
@@ -69,7 +80,18 @@ with sqlite3.connect(DB_PATH) as conn:
             continue
         try:
             p = movie.media[0].parts[0]
-            cur.execute("INSERT INTO films VALUES (?, ?, ?, ?)", (movie.ratingKey, movie.title, movie.year, p.key))
+            genres = ", ".join([g.tag for g in movie.genres]) if movie.genres else ""
+            cur.execute("INSERT INTO films VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+                movie.ratingKey,
+                movie.title,
+                movie.year,
+                p.key,
+                movie.duration,
+                movie.summary,
+                movie.rating,
+                genres,
+                str(movie.originallyAvailableAt)
+            ))
             log_debug(f"🎬 Added movie: {movie.title} ({movie.year})")
         except Exception as e:
             log_debug(f"❌ Error adding movie {movie.title}: {e}")
