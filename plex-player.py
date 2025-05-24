@@ -1,3 +1,4 @@
+
 import sqlite3, subprocess, os, argparse
 
 CONFIG_DIR = os.path.expanduser("~/.config/plex-minimal")
@@ -22,20 +23,18 @@ def load_config(path, missing_msg=None):
             print(missing_msg)
         return None
 
-def ensure_db_exists(db_path, cache_script):
-    if not os.path.exists(db_path):
-        subprocess.run(["python3", cache_script], check=True)
-
-def get_db_connection(db_path):
-    return sqlite3.connect(db_path)
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Client Plex minimal avec MPV")
     parser.add_argument("--baseurl", help="URL du serveur Plex (ex: http://192.168.1.2:32400)")
     parser.add_argument("--token", help="Token Plex d'authentification")
+    parser.add_argument("--debug", action="store_true", help="Afficher les logs détaillés")
     return parser.parse_args()
 
 args = parse_args()
+
+def log_debug(msg):
+    if args.debug:
+        print(f"[DEBUG] {msg}")
 
 if args.baseurl:
     save_config(BASEURL_PATH, args.baseurl)
@@ -47,11 +46,15 @@ token = load_config(TOKEN_PATH, "❌ token manquant. Utilisez --token pour l’e
 if not baseurl or not token:
     exit(1)
 
-ensure_db_exists(DB_PATH, CACHE_SCRIPT)
-conn = get_db_connection(DB_PATH)
+if not os.path.exists(DB_PATH):
+    log_debug("Base de données absente. Génération...")
+    subprocess.run(["python3", CACHE_SCRIPT], check=True)
+
+conn = sqlite3.connect(DB_PATH)
 cur = conn.cursor()
 
 subprocess.Popen(["python3", CACHE_SCRIPT], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+log_debug("Mise à jour du cache lancée en tâche de fond.")
 
 def fzf_select(prompt, items, default_first=False):
     options = ["fzf", "--prompt=" + prompt]
@@ -62,6 +65,7 @@ def fzf_select(prompt, items, default_first=False):
     return result.stdout.strip() if result.returncode == 0 else None
 
 def lancer_mpv(titre, url):
+    log_debug(f"Lancement MPV : {titre} - {url}")
     subprocess.run([
         "mpv", "--force-window=yes", "--hwdec=vaapi",
         "--fullscreen",
@@ -122,11 +126,7 @@ def menu_series():
         if prev_label: options.append(prev_label)
         options.append("❌ Quitter")
 
-        next_action = fzf_select(
-            "▶️ Choix de l'action : ",
-            options,
-            default_first=True
-        )
+        next_action = fzf_select("▶️ Choix de l'action : ", options, default_first=True)
 
         if next_action and next_action.startswith("⏮️"):
             index = max(0, index - 1)
