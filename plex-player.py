@@ -114,7 +114,7 @@ if row:
     print(f"🕒 Duration: {{int(row[2]/60000)}} min")
     print(f"⭐ Rating: {{row[4]}}")
     print(f"🎭 Genres: {{row[5]}}")
-    print(f"📅 Date: {{row[6]}}\\n")
+    print(f"📅 Date: {{row[6][:10]}}\\n")
     print("🧾 Synopsis:")
     print("─" * 72)
     wrapped = textwrap.wrap(row[3] or "", width=72)
@@ -125,6 +125,7 @@ if row:
 else:
     print("No metadata found.")
 ' {{}}"""
+
 
 
     choice = fzf_select(
