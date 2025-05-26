@@ -94,14 +94,21 @@ def lancer_mpv(title, url):
 
 def menu_films():
     sort_mode = "title"
+    sort_order = "asc"  
     sort_labels = {"title": "Title", "rating": "Rating", "year": "Year"}
+    sort_keys = {
+        "title": ("title", "COLLATE NOCASE"),
+        "rating": ("rating", ""),
+        "year": ("year", "")
+    }
     while True:
+        key, extra = sort_keys[sort_mode]
+        order = "ASC" if sort_order == "asc" else "DESC"
         if sort_mode == "title":
-            cur.execute("SELECT title, year FROM films ORDER BY title COLLATE NOCASE")
-        elif sort_mode == "rating":
-            cur.execute("SELECT title, year FROM films ORDER BY rating DESC, title COLLATE NOCASE")
-        elif sort_mode == "year":
-            cur.execute("SELECT title, year FROM films ORDER BY year DESC, title COLLATE NOCASE")
+            sql = f"SELECT title, year FROM films ORDER BY {key} {extra} {order}"
+        else:
+            sql = f"SELECT title, year FROM films ORDER BY {key} {order}, title COLLATE NOCASE"
+        cur.execute(sql)
         films = cur.fetchall()
         items = [(f"{title} ({year})", title) for title, year in films]
 
@@ -131,7 +138,9 @@ else:
     print("No metadata found.")
 ' {{}}""".strip()
 
-        prompt = f"🎬 Movie [{sort_labels[sort_mode]}]: "
+        # Affiche le sens du tri dans le prompt
+        arrow = "▲" if sort_order == "asc" else "▼"
+        prompt = f"🎬 Movie [{sort_labels[sort_mode]} {arrow}]: "
 
         result = subprocess.run(
             [
@@ -144,17 +153,30 @@ else:
             input="\n".join([i[0] for i in items]), text=True, capture_output=True
         )
         output = result.stdout.splitlines()
-        key = output[0] if output else ""
+        key_pressed = output[0] if output else ""
         choice = output[1] if len(output) > 1 else None
 
-        if key == "ctrl-r":
-            sort_mode = "rating"
+        # Inversion du tri si on rappuie sur le même raccourci
+        if key_pressed == "ctrl-r":
+            if sort_mode == "rating":
+                sort_order = "desc" if sort_order == "asc" else "asc"
+            else:
+                sort_mode = "rating"
+                sort_order = "desc"
             continue
-        elif key == "ctrl-y":
-            sort_mode = "year"
+        elif key_pressed == "ctrl-y":
+            if sort_mode == "year":
+                sort_order = "desc" if sort_order == "asc" else "asc"
+            else:
+                sort_mode = "year"
+                sort_order = "desc"
             continue
-        elif key == "ctrl-t":
-            sort_mode = "title"
+        elif key_pressed == "ctrl-t":
+            if sort_mode == "title":
+                sort_order = "asc" if sort_order == "desc" else "desc"
+            else:
+                sort_mode = "title"
+                sort_order = "asc"
             continue
 
         if not choice or choice not in dict(items):
