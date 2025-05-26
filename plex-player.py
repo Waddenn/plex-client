@@ -93,8 +93,14 @@ def lancer_mpv(title, url):
 
 
 def menu_films():
+    sort_mode = "title"
     while True:
-        cur.execute("SELECT title, year FROM films ORDER BY title COLLATE NOCASE")
+        if sort_mode == "title":
+            cur.execute("SELECT title, year FROM films ORDER BY title COLLATE NOCASE")
+        elif sort_mode == "rating":
+            cur.execute("SELECT title, year FROM films ORDER BY rating DESC, title COLLATE NOCASE")
+        elif sort_mode == "year":
+            cur.execute("SELECT title, year FROM films ORDER BY year DESC, title COLLATE NOCASE")
         films = cur.fetchall()
         items = [(f"{title} ({year})", title) for title, year in films]
 
@@ -124,10 +130,31 @@ else:
     print("No metadata found.")
 ' {{}}""".strip()
 
-        choice = fzf_select(
-            "🎬 Movie: ", [i[0] for i in items], preview_cmd=preview_script
+        prompt = "🎬 Movie (Ctrl+R:Rating, Ctrl+Y:Year): "
+
+        # Utilise --expect pour détecter la touche
+        result = subprocess.run(
+            [
+                "fzf",
+                "--prompt=" + prompt,
+                "--preview-window=right:60%:wrap",
+                "--preview", preview_script,
+                "--expect=ctrl-r,ctrl-y"
+            ],
+            input="\n".join([i[0] for i in items]), text=True, capture_output=True
         )
-        if not choice:
+        output = result.stdout.splitlines()
+        key = output[0] if output else ""
+        choice = output[1] if len(output) > 1 else None
+
+        if key == "ctrl-r":
+            sort_mode = "rating"
+            continue
+        elif key == "ctrl-y":
+            sort_mode = "year"
+            continue
+
+        if not choice or choice not in dict(items):
             return
         selected_title = dict(items)[choice]
         cur.execute("SELECT part_key FROM films WHERE title = ?", (selected_title,))
