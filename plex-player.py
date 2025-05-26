@@ -139,7 +139,7 @@ else:
                 "--prompt=" + prompt,
                 "--preview-window=right:60%:wrap",
                 "--preview", preview_script,
-                "--expect=ctrl-r,ctrl-y"
+                "--expect=ctrl-r,ctrl-y,ctrl-t"
             ],
             input="\n".join([i[0] for i in items]), text=True, capture_output=True
         )
@@ -152,6 +152,9 @@ else:
             continue
         elif key == "ctrl-y":
             sort_mode = "year"
+            continue
+        elif key == "ctrl-t":
+            sort_mode = "title"
             continue
 
         if not choice or choice not in dict(items):
