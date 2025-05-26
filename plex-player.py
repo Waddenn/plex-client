@@ -92,27 +92,45 @@ def lancer_mpv(title, url):
     )
 
 
-def menu_films():
-    sort_mode = "title"
-    sort_order = "asc"  
-    sort_labels = {"title": "Title", "rating": "Rating", "year": "Year"}
-    sort_keys = {
-        "title": ("title", "COLLATE NOCASE"),
-        "rating": ("rating", ""),
-        "year": ("year", "")
-    }
-    while True:
-        key, extra = sort_keys[sort_mode]
-        order = "ASC" if sort_order == "asc" else "DESC"
-        if sort_mode == "title":
-            sql = f"SELECT title, year FROM films ORDER BY {key} {extra} {order}"
-        else:
-            sql = f"SELECT title, year FROM films ORDER BY {key} {order}, title COLLATE NOCASE"
-        cur.execute(sql)
-        films = cur.fetchall()
-        items = [(f"{title} ({year})", title) for title, year in films]
+def run_fzf(items, prompt, preview_script=None, expect_keys=None, default_first=False):
+    options = [
+        "fzf",
+        "--prompt=" + prompt,
+        "--preview-window=right:60%:wrap"
+    ]
+    if preview_script:
+        options += ["--preview", preview_script]
+    if expect_keys:
+        options += [f"--expect={expect_keys}"]
+    if default_first:
+        options += ["--header-lines=1"]
+        items = [""] + items
+    result = subprocess.run(
+        options, input="\n".join(items), text=True, capture_output=True
+    )
+    output = result.stdout.splitlines()
+    key = output[0] if output else ""
+    choice = output[1] if len(output) > 1 else None
+    return key, choice
 
-        preview_script = f"""
+def get_film_items(sort_mode, sort_order, cur):
+    sort_options = {
+        "title": ("title", "COLLATE NOCASE", "ASC"),
+        "rating": ("rating", "", "DESC"),
+        "year": ("year", "", "DESC")
+    }
+    key, extra, default_order = sort_options[sort_mode]
+    order = "ASC" if sort_order == "asc" else "DESC"
+    if sort_mode == "title":
+        sql = f"SELECT title, year FROM films ORDER BY {key} {extra} {order}"
+    else:
+        sql = f"SELECT title, year FROM films ORDER BY {key} {order}, title COLLATE NOCASE"
+    cur.execute(sql)
+    films = cur.fetchall()
+    return [(f"{title} ({year})", title) for title, year in films]
+
+def get_preview_script_film():
+    return f"""
 python3 -c '
 import sqlite3, sys, textwrap
 db = "{DB_PATH}"
@@ -138,45 +156,45 @@ else:
     print("No metadata found.")
 ' {{}}""".strip()
 
-        # Affiche le sens du tri dans le prompt
+def menu_films():
+    sort_options = {
+        "title": {
+            "label": "Title",
+            "shortcut": "ctrl-t",
+            "default_order": "asc"
+        },
+        "rating": {
+            "label": "Rating",
+            "shortcut": "ctrl-r",
+            "default_order": "desc"
+        },
+        "year": {
+            "label": "Year",
+            "shortcut": "ctrl-y",
+            "default_order": "desc"
+        }
+    }
+    shortcut_to_mode = {v["shortcut"]: k for k, v in sort_options.items()}
+    sort_mode = "title"
+    sort_order = sort_options[sort_mode]["default_order"]
+
+    while True:
+        items = get_film_items(sort_mode, sort_order, cur)
+        preview_script = get_preview_script_film()
         arrow = "▲" if sort_order == "asc" else "▼"
-        prompt = f"🎬 Movie [{sort_labels[sort_mode]} {arrow}]: "
-
-        result = subprocess.run(
-            [
-                "fzf",
-                "--prompt=" + prompt,
-                "--preview-window=right:60%:wrap",
-                "--preview", preview_script,
-                "--expect=ctrl-r,ctrl-y,ctrl-t"
-            ],
-            input="\n".join([i[0] for i in items]), text=True, capture_output=True
+        prompt = f"🎬 Movie [{sort_options[sort_mode]['label']} {arrow}]: "
+        expect_keys = ",".join([v["shortcut"] for v in sort_options.values()])
+        key_pressed, choice = run_fzf(
+            [i[0] for i in items], prompt, preview_script, expect_keys
         )
-        output = result.stdout.splitlines()
-        key_pressed = output[0] if output else ""
-        choice = output[1] if len(output) > 1 else None
 
-        # Inversion du tri si on rappuie sur le même raccourci
-        if key_pressed == "ctrl-r":
-            if sort_mode == "rating":
+        if key_pressed in shortcut_to_mode:
+            new_mode = shortcut_to_mode[key_pressed]
+            if sort_mode == new_mode:
                 sort_order = "desc" if sort_order == "asc" else "asc"
             else:
-                sort_mode = "rating"
-                sort_order = "desc"
-            continue
-        elif key_pressed == "ctrl-y":
-            if sort_mode == "year":
-                sort_order = "desc" if sort_order == "asc" else "asc"
-            else:
-                sort_mode = "year"
-                sort_order = "desc"
-            continue
-        elif key_pressed == "ctrl-t":
-            if sort_mode == "title":
-                sort_order = "asc" if sort_order == "desc" else "desc"
-            else:
-                sort_mode = "title"
-                sort_order = "asc"
+                sort_mode = new_mode
+                sort_order = sort_options[sort_mode]["default_order"]
             continue
 
         if not choice or choice not in dict(items):
@@ -189,15 +207,8 @@ else:
             continue
         lancer_mpv(choice, baseurl + row[0])
 
-
-def menu_series():
-    while True:
-        cur.execute("SELECT id, title FROM series ORDER BY title COLLATE NOCASE")
-        series = cur.fetchall()
-        title = fzf_select(
-            "📺 Series: ",
-            [t for _, t in series],
-            preview_cmd=f"""
+def get_preview_script_series():
+    return f"""
 python3 -c '
 import sqlite3, sys, textwrap
 db = "{DB_PATH}"
@@ -219,35 +230,10 @@ if row:
         print("  [...]")
 else:
     print("No metadata found.")
-' {{}}""".strip(),
-        )
-        if not title:
-            return
+' {{}}""".strip()
 
-        s_id = dict((t, i) for i, t in series)[title]
-        while True:
-            cur.execute(
-                "SELECT id, saison_index FROM saisons WHERE serie_id = ? ORDER BY saison_index",
-                (s_id,),
-            )
-            seasons = cur.fetchall()
-            label = fzf_select("📂 Season: ", [f"Season {i}" for _, i in seasons])
-            if not label:
-                break
-            sa_id = dict((f"Season {i}", sid) for sid, i in seasons)[label]
-
-            while True:
-                cur.execute(
-                    "SELECT episode_index, title, part_key, duration, summary, rating FROM episodes WHERE saison_id = ? ORDER BY episode_index",
-                    (sa_id,),
-                )
-                episodes = cur.fetchall()
-                e_map = [(f"{i:02d}. {t}", k, d, s, r) for i, t, k, d, s, r in episodes]
-
-                choice = fzf_select(
-                    "🎞️ Episode: ",
-                    [label for label, *_ in e_map],
-                    preview_cmd=f"""
+def get_preview_script_episode(sa_id):
+    return f"""
 python3 -c '
 import sqlite3, sys, textwrap
 db = "{DB_PATH}"
@@ -270,7 +256,47 @@ if row:
         print("  [...]")
 else:
     print("No metadata found.")
-' {{}}""".strip(),
+' {{}}""".strip()
+
+def menu_series():
+    while True:
+        cur.execute("SELECT id, title FROM series ORDER BY title COLLATE NOCASE")
+        series = cur.fetchall()
+        title, _ = run_fzf(
+            [t for _, t in series],
+            "📺 Series: ",
+            get_preview_script_series()
+        )
+        if not title:
+            return
+
+        s_id = dict((t, i) for i, t in series)[title]
+        while True:
+            cur.execute(
+                "SELECT id, saison_index FROM saisons WHERE serie_id = ? ORDER BY saison_index",
+                (s_id,),
+            )
+            seasons = cur.fetchall()
+            label, _ = run_fzf(
+                [f"Season {i}" for _, i in seasons],
+                "📂 Season: "
+            )
+            if not label:
+                break
+            sa_id = dict((f"Season {i}", sid) for sid, i in seasons)[label]
+
+            while True:
+                cur.execute(
+                    "SELECT episode_index, title, part_key, duration, summary, rating FROM episodes WHERE saison_id = ? ORDER BY episode_index",
+                    (sa_id,),
+                )
+                episodes = cur.fetchall()
+                e_map = [(f"{i:02d}. {t}", k, d, s, r) for i, t, k, d, s, r in episodes]
+
+                choice, _ = run_fzf(
+                    [label for label, *_ in e_map],
+                    "🎞️ Episode: ",
+                    get_preview_script_episode(sa_id)
                 )
                 if not choice:
                     break
