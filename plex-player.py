@@ -94,6 +94,7 @@ def lancer_mpv(title, url):
 
 def menu_films():
     sort_mode = "title"
+    sort_labels = {"title": "Title", "rating": "Rating", "year": "Year"}
     while True:
         if sort_mode == "title":
             cur.execute("SELECT title, year FROM films ORDER BY title COLLATE NOCASE")
@@ -130,9 +131,8 @@ else:
     print("No metadata found.")
 ' {{}}""".strip()
 
-        prompt = "🎬 Movie (Ctrl+R:Rating, Ctrl+Y:Year): "
+        prompt = f"🎬 Movie [{sort_labels[sort_mode]}]: "
 
-        # Utilise --expect pour détecter la touche
         result = subprocess.run(
             [
                 "fzf",
