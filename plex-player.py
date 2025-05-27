@@ -77,12 +77,13 @@ def fzf_select(prompt, items, default_first=False, preview_cmd=None):
     )
     return result.stdout.strip() if result.returncode == 0 else None
 
-
 def lancer_mpv(title, url):
     log_debug(f"Launching MPV: {title} - {url}")
+    mpv_args = os.environ.get("MPV_CONFIG_OVERRIDE", "").split()
     subprocess.run(
         [
             "mpv",
+            *mpv_args,
             "--force-window=yes",
             "--hwdec=vaapi",
             "--fullscreen",
