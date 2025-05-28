@@ -113,22 +113,32 @@ with sqlite3.connect(DB_PATH) as conn:
             summary TEXT,
             rating REAL
         );
-        DELETE FROM films;
-        DELETE FROM series;
-        DELETE FROM saisons;
-        DELETE FROM episodes;
         """
     )
+
+    # Récupérer les IDs existants pour éviter de re-télécharger les métadonnées
+    cur.execute("SELECT id FROM films")
+    existing_film_ids = set(row[0] for row in cur.fetchall())
+    cur.execute("SELECT id FROM series")
+    existing_series_ids = set(row[0] for row in cur.fetchall())
+    cur.execute("SELECT id FROM saisons")
+    existing_saison_ids = set(row[0] for row in cur.fetchall())
+    cur.execute("SELECT id FROM episodes")
+    existing_episode_ids = set(row[0] for row in cur.fetchall())
+
+    film_insert = []
+    series_insert = []
+    saison_insert = []
+    episode_insert = []
 
     for section in plex.library.sections():
         if section.type == "movie":
             for movie in section.all():
-                try:
-                    p = movie.media[0].parts[0]
-                    genres = ", ".join([g.tag for g in movie.genres]) if movie.genres else ""
-                    cur.execute(
-                        "INSERT INTO films VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (
+                if int(movie.ratingKey) not in existing_film_ids:
+                    try:
+                        p = movie.media[0].parts[0]
+                        genres = ", ".join([g.tag for g in movie.genres]) if movie.genres else ""
+                        film_insert.append((
                             movie.ratingKey,
                             movie.title,
                             movie.year,
@@ -138,57 +148,78 @@ with sqlite3.connect(DB_PATH) as conn:
                             movie.rating,
                             genres,
                             str(movie.originallyAvailableAt),
-                        ),
+                        ))
+                        log_debug(f"🎬 Added new movie: {movie.title} ({movie.year})")
+                    except Exception as e:
+                        log_debug(f"❌ Error adding movie {movie.title}: {e}")
+                else:
+                    cur.execute(
+                        "UPDATE films SET title=?, year=? WHERE id=?",
+                        (movie.title, movie.year, movie.ratingKey)
                     )
-                    log_debug(f"🎬 Added movie: {movie.title} ({movie.year})")
-                except Exception as e:
-                    log_debug(f"❌ Error adding movie {movie.title}: {e}")
 
         elif section.type == "show":
             for serie in section.all():
-                try:
-                    genres = ", ".join([g.tag for g in serie.genres]) if serie.genres else ""
-                    cur.execute(
-                        "INSERT INTO series VALUES (?, ?, ?, ?, ?)",
-                        (
+                if int(serie.ratingKey) not in existing_series_ids:
+                    try:
+                        genres = ", ".join([g.tag for g in serie.genres]) if serie.genres else ""
+                        series_insert.append((
                             serie.ratingKey,
                             serie.title,
                             serie.summary,
                             serie.rating,
                             genres,
-                        ),
+                        ))
+                        log_debug(f"📺 Added new series: {serie.title}")
+                    except Exception as e:
+                        log_debug(f"❌ Error series {serie.title}: {e}")
+                else:
+                    cur.execute(
+                        "UPDATE series SET title=? WHERE id=?",
+                        (serie.title, serie.ratingKey)
                     )
-                    log_debug(f"📺 Added series: {serie.title}")
 
-                    for saison in serie.seasons():
-                        cur.execute(
-                            "INSERT INTO saisons VALUES (?, ?, ?, ?)",
-                            (saison.ratingKey, serie.ratingKey, saison.index, saison.summary),
-                        )
-                        log_debug(f"  ↳ Season {saison.index}")
+                for saison in serie.seasons():
+                    if int(saison.ratingKey) not in existing_saison_ids:
+                        saison_insert.append((
+                            saison.ratingKey, serie.ratingKey, saison.index, saison.summary
+                        ))
+                        log_debug(f"  ↳ New season {saison.index}")
 
-                        for e in saison.episodes():
+                    for e in saison.episodes():
+                        if int(e.ratingKey) not in existing_episode_ids:
                             try:
                                 p = e.media[0].parts[0]
-                                cur.execute(
-                                    "INSERT INTO episodes VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                                    (
-                                        e.ratingKey,
-                                        saison.ratingKey,
-                                        e.index,
-                                        e.title,
-                                        p.key,
-                                        e.duration,
-                                        e.summary,
-                                        e.rating,
-                                    ),
-                                )
-                                log_debug(f"    ↳ Episode {e.index}: {e.title}")
+                                episode_insert.append((
+                                    e.ratingKey,
+                                    saison.ratingKey,
+                                    e.index,
+                                    e.title,
+                                    p.key,
+                                    e.duration,
+                                    e.summary,
+                                    e.rating,
+                                ))
+                                log_debug(f"    ↳ New episode {e.index}: {e.title}")
                             except Exception as ex:
                                 log_debug(f"❌ Error episode {e.title}: {ex}")
 
-                except Exception as e:
-                    log_debug(f"❌ Error series {serie.title}: {e}")
+    if film_insert:
+        cur.executemany(
+            "INSERT INTO films VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", film_insert
+        )
+    if series_insert:
+        cur.executemany(
+            "INSERT INTO series VALUES (?, ?, ?, ?, ?)", series_insert
+        )
+    if saison_insert:
+        cur.executemany(
+            "INSERT INTO saisons VALUES (?, ?, ?, ?)", saison_insert
+        )
+    if episode_insert:
+        cur.executemany(
+            "INSERT INTO episodes VALUES (?, ?, ?, ?, ?, ?, ?, ?)", episode_insert
+        )
 
     conn.commit()
-    log_debug("✅ Cache updated (full rebuild).")
+    log_debug("✅ Cache updated (only new items added).")
