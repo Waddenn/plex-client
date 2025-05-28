@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument("--baseurl", help="Plex server URL")
     parser.add_argument("--token", help="Plex authentication token")
     parser.add_argument("--debug", action="store_true", help="Show detailed logs")
+    parser.add_argument("--force", action="store_true", help="Force cache rebuild even if cache is fresh")  # ajout
     return parser.parse_args()
 
 
@@ -67,7 +68,7 @@ def cache_is_fresh(db_path, max_age_hours=24):
     return age < max_age_hours * 3600
 
 
-if cache_is_fresh(DB_PATH):
+if cache_is_fresh(DB_PATH) and not args.force:
     print("✅ Cache is fresh (<24h), skipping rebuild.")
     exit(0)
 
