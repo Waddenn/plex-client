@@ -12,11 +12,13 @@ CACHE_SCRIPT = os.environ.get("BUILD_CACHE", "build_cache.py")
 
 
 def save_config(path, value):
+    """Save a configuration value to a file."""
     with open(path, "w") as f:
         f.write(value.strip())
 
 
 def load_config(path, missing_msg=None):
+    """Load a configuration value from a file, optionally printing a message if missing."""
     try:
         with open(path) as f:
             return f.read().strip()
@@ -27,6 +29,7 @@ def load_config(path, missing_msg=None):
 
 
 def parse_args():
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Minimal Plex client with MPV")
     parser.add_argument("--baseurl", help="Plex server URL")
     parser.add_argument("--token", help="Plex authentication token")
@@ -66,6 +69,7 @@ log_debug("Cache update started in background.")
 
 
 def fzf_select(prompt, items, default_first=False, preview_cmd=None):
+    """Run fzf with the given prompt and items, optionally with a preview command."""
     options = ["fzf", "--prompt=" + prompt, "--preview-window=right:60%:wrap"]
     if default_first:
         options += ["--header-lines=1"]
@@ -77,7 +81,8 @@ def fzf_select(prompt, items, default_first=False, preview_cmd=None):
     )
     return result.stdout.strip() if result.returncode == 0 else None
 
-def lancer_mpv(title, url):
+def launch_mpv(title, url):
+    """Launch MPV player with the given title and URL."""
     log_debug(f"Launching MPV: {title} - {url}")
     mpv_args = os.environ.get("MPV_CONFIG_OVERRIDE", "").split()
     subprocess.run(
@@ -94,6 +99,7 @@ def lancer_mpv(title, url):
 
 
 def run_fzf(items, prompt, preview_script=None, expect_keys=None, default_first=False):
+    """Run fzf with options and return the pressed key and selected choice."""
     options = [
         "fzf",
         "--prompt=" + prompt,
@@ -115,6 +121,7 @@ def run_fzf(items, prompt, preview_script=None, expect_keys=None, default_first=
     return key, choice
 
 def get_film_items(sort_mode, sort_order, cur):
+    """Retrieve film items from the database, sorted by the given mode and order."""
     sort_options = {
         "title": ("title", "COLLATE NOCASE", "ASC"),
         "rating": ("rating", "", "DESC"),
@@ -131,6 +138,7 @@ def get_film_items(sort_mode, sort_order, cur):
     return [(f"{title} ({year})", title) for title, year in films]
 
 def get_preview_script_film():
+    """Return a preview script for films."""
     return f"""
 python3 -c '
 import sqlite3, sys, textwrap
@@ -145,7 +153,7 @@ if row:
     print(f"🕒 Duration: {{int(row[2]/60000)}} min")
     print(f"⭐ Rating: {{row[4]}}")
     print(f"🎭 Genres: {{row[5]}}")
-    print(f"📅 Date: {{row[6][:10]}}\\n")
+    print(f"📅 Release date: {{row[6][:10]}}\\n")
     print("🧾 Synopsis:")
     print("─" * 72)
     wrapped = textwrap.wrap(row[3] or "", width=72)
@@ -158,6 +166,7 @@ else:
 ' {{}}""".strip()
 
 def menu_films():
+    """Display the movies menu with sorting options."""
     sort_options = {
         "title": {
             "label": "Title",
@@ -204,11 +213,12 @@ def menu_films():
         cur.execute("SELECT part_key FROM films WHERE title = ?", (selected_title,))
         row = cur.fetchone()
         if not row:
-            print("Selected film not found.")
+            print("Selected movie not found.")
             continue
-        lancer_mpv(choice, baseurl + row[0])
+        launch_mpv(choice, baseurl + row[0])
 
 def get_preview_script_series():
+    """Return a preview script for series."""
     return f"""
 python3 -c '
 import sqlite3, sys, textwrap
@@ -233,7 +243,8 @@ else:
     print("No metadata found.")
 ' {{}}""".strip()
 
-def get_preview_script_episode(sa_id):
+def get_preview_script_episode(season_id):
+    """Return a preview script for episodes."""
     return f"""
 python3 -c '
 import sqlite3, sys, textwrap
@@ -242,7 +253,7 @@ ep = sys.argv[1]
 idx = int(ep.split(".")[0])
 conn = sqlite3.connect(db)
 cur = conn.cursor()
-cur.execute("SELECT title, duration, summary, rating FROM episodes WHERE episode_index = ? AND saison_id = ?", (idx, {sa_id}))
+cur.execute("SELECT title, duration, summary, rating FROM episodes WHERE episode_index = ? AND saison_id = ?", (idx, {season_id}))
 row = cur.fetchone()
 if row:
     print(f"🎞️ {{row[0]}}\\n")
@@ -260,6 +271,7 @@ else:
 ' {{}}""".strip()
 
 def menu_series():
+    """Display the series menu and handle navigation through seasons and episodes."""
     while True:
         cur.execute("SELECT id, title FROM series ORDER BY title COLLATE NOCASE")
         series = cur.fetchall()
@@ -311,7 +323,7 @@ def menu_series():
                 while 0 <= index < len(e_map):
                     label, part_key, *_ = e_map[index]
                     print(f"Playing: {label}")
-                    lancer_mpv(label, baseurl + part_key)
+                    launch_mpv(label, baseurl + part_key)
 
                     prev_label = (
                         f"⏮️ Previous: {e_map[index - 1][0]}" if index > 0 else None

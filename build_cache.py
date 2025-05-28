@@ -99,19 +99,16 @@ with sqlite3.connect(DB_PATH) as conn:
             summary TEXT,
             rating REAL
         );
+        DELETE FROM films;
+        DELETE FROM series;
+        DELETE FROM saisons;
+        DELETE FROM episodes;
         """
     )
-
-    existing_movies = {row[0] for row in cur.execute("SELECT id FROM films")}
-    existing_series = {row[0] for row in cur.execute("SELECT id FROM series")}
-    existing_seasons = {row[0] for row in cur.execute("SELECT id FROM saisons")}
-    existing_episodes = {row[0] for row in cur.execute("SELECT id FROM episodes")}
 
     for section in plex.library.sections():
         if section.type == "movie":
             for movie in section.all():
-                if movie.ratingKey in existing_movies:
-                    continue
                 try:
                     p = movie.media[0].parts[0]
                     genres = ", ".join([g.tag for g in movie.genres]) if movie.genres else ""
@@ -135,8 +132,6 @@ with sqlite3.connect(DB_PATH) as conn:
 
         elif section.type == "show":
             for serie in section.all():
-                if serie.ratingKey in existing_series:
-                    continue
                 try:
                     genres = ", ".join([g.tag for g in serie.genres]) if serie.genres else ""
                     cur.execute(
@@ -152,8 +147,6 @@ with sqlite3.connect(DB_PATH) as conn:
                     log_debug(f"📺 Added series: {serie.title}")
 
                     for saison in serie.seasons():
-                        if saison.ratingKey in existing_seasons:
-                            continue
                         cur.execute(
                             "INSERT INTO saisons VALUES (?, ?, ?, ?)",
                             (saison.ratingKey, serie.ratingKey, saison.index, saison.summary),
@@ -161,8 +154,6 @@ with sqlite3.connect(DB_PATH) as conn:
                         log_debug(f"  ↳ Season {saison.index}")
 
                         for e in saison.episodes():
-                            if e.ratingKey in existing_episodes:
-                                continue
                             try:
                                 p = e.media[0].parts[0]
                                 cur.execute(
@@ -186,4 +177,4 @@ with sqlite3.connect(DB_PATH) as conn:
                     log_debug(f"❌ Error series {serie.title}: {e}")
 
     conn.commit()
-    log_debug("✅ Cache updated incrementally.")
+    log_debug("✅ Cache updated (full rebuild).")
