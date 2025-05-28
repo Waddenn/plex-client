@@ -2,6 +2,7 @@
 import os
 import sqlite3
 import argparse
+import time
 from plexapi.server import PlexServer
 
 CONFIG_DIR = os.path.expanduser("~/.config/plex-minimal")
@@ -57,6 +58,18 @@ if not baseurl or not token:
 log_debug("Connecting to Plex server...")
 plex = PlexServer(baseurl, token)
 log_debug("Connection established.")
+
+def cache_is_fresh(db_path, max_age_hours=24):
+    if not os.path.exists(db_path):
+        return False
+    mtime = os.path.getmtime(db_path)
+    age = time.time() - mtime
+    return age < max_age_hours * 3600
+
+
+if cache_is_fresh(DB_PATH):
+    print("✅ Cache is fresh (<24h), skipping rebuild.")
+    exit(0)
 
 with sqlite3.connect(DB_PATH) as conn:
     cur = conn.cursor()
