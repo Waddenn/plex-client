@@ -92,8 +92,8 @@ def launch_mpv(title, url):
             "--force-window=yes",
             "--hwdec=vaapi",
             "--fullscreen",
-            "--alang=eng",      # Select English audio by default
-            "--slang=eng",      # Select English subtitles by default
+            "--alang=eng",    
+            "--slang=eng",    
             f"--title={title}",
             f"{url}?X-Plex-Token={token}",
         ]
