@@ -338,7 +338,39 @@ def menu_continue_watching():
     selected = next((item for item in items if item["label"] == choice), None)
     if not selected:
         return
-    launch_mpv(selected["title"], baseurl + selected["part_key"])
+    url = baseurl + selected["part_key"]
+    extra_args = []
+    for section_id in get_video_sections(baseurl, token):
+        url_ondeck = f"{baseurl}/library/sections/{section_id}/onDeck?X-Plex-Token={token}"
+        try:
+            r = requests.get(url_ondeck, timeout=5)
+            r.raise_for_status()
+            root = ElementTree.fromstring(r.content)
+            for video in root.findall(".//Video"):
+                part = video.find("Media/Part")
+                if part is not None and part.attrib.get("key") == selected["part_key"]:
+                    view_offset = int(video.attrib.get("viewOffset", "0"))
+                    if view_offset > 0:
+                        extra_args = [f"--start={view_offset/1000}"]
+                    break
+        except Exception as e:
+            log_debug(f"Failed to fetch viewOffset for resume: {e}")
+    log_debug(f"MPV extra_args for resume: {extra_args}")
+    mpv_args = os.environ.get("MPV_CONFIG_OVERRIDE", "").split()
+    subprocess.run(
+        [
+            "mpv",
+            *mpv_args,
+            "--force-window=yes",
+            "--hwdec=vaapi",
+            "--fullscreen",
+            "--alang=eng",
+            "--slang=eng",
+            f"--title={selected['title']}",
+            *extra_args,
+            f"{url}?X-Plex-Token={token}",
+        ]
+    )
 
 def menu_series():
     """Display the series menu and handle navigation through seasons and episodes."""
