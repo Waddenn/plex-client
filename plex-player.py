@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-import sqlite3, subprocess, os, argparse
+import sqlite3, subprocess, os, argparse, requests
+from xml.etree import ElementTree
 
 CONFIG_DIR = os.path.expanduser("~/.config/plex-minimal")
 CACHE_DIR = os.path.expanduser("~/.cache/plex-minimal")
@@ -272,6 +273,73 @@ else:
     print("No metadata found.")
 ' {{}}""".strip()
 
+def get_video_sections(baseurl, token):
+    """Return all video section ids (films, séries) from Plex."""
+    url = f"{baseurl}/library/sections?X-Plex-Token={token}"
+    try:
+        r = requests.get(url, timeout=5)
+        r.raise_for_status()
+        root = ElementTree.fromstring(r.content)
+        return [
+            directory.attrib["key"]
+            for directory in root.findall(".//Directory")
+            if directory.attrib.get("type") in ("movie", "show")
+        ]
+    except Exception as e:
+        log_debug(f"Failed to fetch video sections: {e}")
+        return []
+
+def get_continue_watching(baseurl, token):
+    """Fetch 'Continue Watching' (onDeck) items from Plex."""
+    items = []
+    section_ids = get_video_sections(baseurl, token)
+    for section_id in section_ids:
+        url = f"{baseurl}/library/sections/{section_id}/onDeck?X-Plex-Token={token}"
+        try:
+            r = requests.get(url, timeout=5)
+            r.raise_for_status()
+            root = ElementTree.fromstring(r.content)
+            for video in root.findall(".//Video"):
+                title = video.attrib.get("title")
+                type_ = video.attrib.get("type")
+                year = video.attrib.get("year", "")
+                view_offset = int(video.attrib.get("viewOffset", "0"))
+                duration = int(video.attrib.get("duration", "0"))
+                percent = int((view_offset / duration) * 100) if duration else 0
+                part = video.find("Media/Part")
+                part_key = part.attrib.get("key") if part is not None else None
+                summary = video.attrib.get("summary", "")
+                grandparent = video.attrib.get("grandparentTitle", "")
+                if type_ == "episode" and grandparent:
+                    label = f"{grandparent} - {title} [{percent}%]"
+                else:
+                    label = f"{title} ({year}) [{type_}] - {percent}% watched"
+                items.append({
+                    "label": label,
+                    "title": title,
+                    "part_key": part_key,
+                    "summary": summary,
+                    "type": type_,
+                })
+        except Exception as e:
+            log_debug(f"Failed to fetch onDeck for section {section_id}: {e}")
+    return items
+
+def menu_continue_watching():
+    """Display and handle 'Continue Watching' menu."""
+    items = get_continue_watching(baseurl, token)
+    if not items:
+        print("No items in Continue Watching.")
+        return
+    labels = [item["label"] for item in items]
+    choice = fzf_select("⏯️ Continue Watching: ", labels)
+    if not choice:
+        return
+    selected = next((item for item in items if item["label"] == choice), None)
+    if not selected:
+        return
+    launch_mpv(selected["title"], baseurl + selected["part_key"])
+
 def menu_series():
     """Display the series menu and handle navigation through seasons and episodes."""
     while True:
@@ -352,12 +420,13 @@ def menu_series():
                     else:
                         break
 
-
 while True:
-    choice = fzf_select("🎯 Choose: ", ["Movies", "Series"])
+    choice = fzf_select("🎯 Choose: ", ["Continue Watching", "Movies", "Series"])
     if not choice:
         break
-    if choice == "Movies":
+    if choice == "Continue Watching":
+        menu_continue_watching()
+    elif choice == "Movies":
         menu_films()
     elif choice == "Series":
         menu_series()
