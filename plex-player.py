@@ -93,8 +93,10 @@ def launch_mpv(title, url):
             "--force-window=yes",
             "--hwdec=vaapi",
             "--fullscreen",
-            "--alang=eng",    
-            "--slang=eng",    
+            "--alang=eng",
+            "--slang=eng",
+            "--vo=gpu",
+            "--gpu-api=opengl",
             f"--title={title}",
             f"{url}?X-Plex-Token={token}",
         ]
