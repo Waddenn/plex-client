@@ -1,3 +1,6 @@
 __pycache__
 dev.nix
-.vscode
+.vscoderesult
+vendor/
+result
+result
