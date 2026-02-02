@@ -35,10 +35,14 @@
         version = "0.1.0";
         src = pkgs.lib.cleanSource ./.; # Exclude .git, result, etc.
 
-        vendorHash = "sha256-mOVKZV2zjmkcZQkFl4VDQApKTUE7QC4i7sTFJ/L5g1Q=";
+        vendorHash = "sha256-Fpf+nL5yl4222ugWZfTQI88NHCu/t3orDnulNkPHuK4=";
+
 
         # Skip tests during build for faster compilation
         doCheck = false;
+
+        # Ignore vendor directory, let Go manage dependencies
+        buildFlags = ["-mod=mod"];
 
         nativeBuildInputs = [pkgs.makeWrapper];
         
