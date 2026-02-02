@@ -79,7 +79,7 @@ func ShowContinueWatching(p *plex.Client, cfg *config.Config) {
 
 	// Calculate resume time in seconds for mpv --start
 	start := v.ViewOffset / 1000
-	player.Play(v.Title, cfg.BaseURL+partKey, cfg, fmt.Sprintf("--start=%d", start))
+	player.Play(v.Title, cfg.Plex.BaseURL+partKey, cfg, fmt.Sprintf("--start=%d", start))
 }
 
 // getOnDeckAll fetches continue watching items from all sections
@@ -135,7 +135,7 @@ func ShowMovies(d *sql.DB, cfg *config.Config) {
 
 	info := infoMap[res.Choice]
 	if info.PartKey != "" {
-		player.Play(info.Title, cfg.BaseURL+info.PartKey, cfg)
+		player.Play(info.Title, cfg.Plex.BaseURL+info.PartKey, cfg)
 	}
 }
 
@@ -235,7 +235,7 @@ func showEpisodes(d *sql.DB, cfg *config.Config, seasonID int) {
 
 	info := infoMap[res.Choice]
 	if info.PartKey != "" {
-		player.Play(info.Title, cfg.BaseURL+info.PartKey, cfg)
+		player.Play(info.Title, cfg.Plex.BaseURL+info.PartKey, cfg)
 	}
 }
 

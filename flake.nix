@@ -33,9 +33,12 @@
       packages.default = pkgs.buildGoModule {
         pname = "plex-client";
         version = "0.1.0";
-        src = ./.;
+        src = pkgs.lib.cleanSource ./.; # Exclude .git, result, etc.
 
-        vendorHash = null;
+        vendorHash = "sha256-mOVKZV2zjmkcZQkFl4VDQApKTUE7QC4i7sTFJ/L5g1Q=";
+
+        # Skip tests during build for faster compilation
+        doCheck = false;
 
         nativeBuildInputs = [pkgs.makeWrapper];
         

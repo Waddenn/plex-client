@@ -1,0 +1,44 @@
+# Plex Client Configuration Example
+# Copy this file to ~/.config/plex-client/config.toml and customize
+
+[plex]
+# Plex server URL (required)
+baseurl = "http://192.168.1.100:32400"
+
+# Plex authentication token (required)
+# Get it from: https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/
+token = "your-plex-token-here"
+
+[player]
+# Video quality: auto, original, 1080p, 720p, 480p
+quality = "auto"
+
+# Custom MPV arguments (list)
+mpv_args = []
+
+# Subtitles settings
+subtitles_enabled = true
+subtitles_lang = "eng"  # ISO 639-2 language code
+
+# Audio settings
+audio_lang = "eng"  # ISO 639-2 language code
+
+[ui]
+# Show preview pane in fzf
+show_preview = true
+
+# Default sorting: title, date, rating, recent
+sort_by = "title"
+
+# Use icons/emojis in menus
+use_icons = true
+
+[sync]
+# Auto-sync cache on startup
+auto_sync = true
+
+# Force full sync on startup (slower but ensures consistency)
+force_sync_on_start = false
+
+# Background sync interval in minutes (0 = disabled)
+background_sync_interval_minutes = 0

@@ -36,22 +36,28 @@ func main() {
 		log.Fatalf("Error loading config: %v", err)
 	}
 
+	// Apply flags to config
 	if *baseURLFlag != "" {
-		cfg.BaseURL = *baseURLFlag
+		cfg.Plex.BaseURL = *baseURLFlag
 	}
 	if *tokenFlag != "" {
-		cfg.Token = *tokenFlag
+		cfg.Plex.Token = *tokenFlag
 	}
 
+	// Save config if flags were provided
 	if *baseURLFlag != "" || *tokenFlag != "" {
 		if err := config.Save(cfg); err != nil {
 			log.Printf("Warning: failed to save config: %v", err)
+		} else {
+			dir, _ := config.ConfigDir()
+			fmt.Printf("✅ Configuration saved to %s/config.toml\n", dir)
 		}
 	}
 
-	if cfg.BaseURL == "" || cfg.Token == "" {
+	if cfg.Plex.BaseURL == "" || cfg.Plex.Token == "" {
 		fmt.Println("❌ Missing configuration.")
 		fmt.Println("Usage: plex-client --baseurl URL --token TOKEN")
+		fmt.Println("   or create ~/.config/plex-client/config.toml")
 		os.Exit(1)
 	}
 
@@ -61,7 +67,7 @@ func main() {
 	}
 	defer d.Close()
 
-	p := plex.New(cfg.BaseURL, cfg.Token)
+	p := plex.New(cfg.Plex.BaseURL, cfg.Plex.Token)
 
 	// Check if we have data
 	hasData := false
@@ -75,13 +81,16 @@ func main() {
 		}
 	}
 
-	if !hasData || *forceSync {
+	// Use config sync settings
+	forceSyncFlag := *forceSync || cfg.Sync.ForceSyncOnStart
+	
+	if !hasData || forceSyncFlag {
 		fmt.Println("🚀 Syncing library for the first time... This might take a while.")
-		if err := cache.Sync(p, d, *forceSync); err != nil {
+		if err := cache.Sync(p, d, forceSyncFlag); err != nil {
 			log.Printf("Sync error: %v", err)
 		}
-	} else {
-		// update in background
+	} else if cfg.Sync.AutoSync {
+		// Background sync
 		go func() {
 			if err := cache.Sync(p, d, false); err != nil {
 				log.Printf("Background sync error: %v", err)

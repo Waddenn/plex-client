@@ -11,7 +11,7 @@ import (
 )
 
 func Play(title, url string, cfg *config.Config, extraArgs ...string) error {
-	fullURL := fmt.Sprintf("%s?X-Plex-Token=%s", url, cfg.Token)
+	fullURL := fmt.Sprintf("%s?X-Plex-Token=%s", url, cfg.Plex.Token)
 	
 	args := []string{
 		"--force-window=yes",
