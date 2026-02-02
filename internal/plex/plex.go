@@ -104,6 +104,18 @@ func (c *Client) GetChildren(key string) ([]Directory, []Video, error) {
 	return mc.Directories, mc.Videos, nil
 }
 
+func (c *Client) GetMetadata(key string) (*Video, error) {
+	url := fmt.Sprintf("%s/library/metadata/%s?X-Plex-Token=%s", c.BaseURL, key, c.Token)
+	var mc MediaContainer
+	if err := c.getXML(url, &mc); err != nil {
+		return nil, err
+	}
+	if len(mc.Videos) > 0 {
+		return &mc.Videos[0], nil
+	}
+	return nil, fmt.Errorf("no metadata found for key %s", key)
+}
+
 func (c *Client) GetSectionDirs(key string) ([]Directory, error) {
 	url := fmt.Sprintf("%s/library/sections/%s/all?X-Plex-Token=%s", c.BaseURL, key, c.Token)
 	var mc MediaContainer
@@ -125,4 +137,62 @@ func (c *Client) getXML(url string, target interface{}) error {
 	}
 
 	return xml.NewDecoder(resp.Body).Decode(target)
+}
+
+func (c *Client) ReportProgress(key string, timeMs int64, durationMs int64, state string) error {
+	// API expects ratingKey in query params but typically also accepts key in path or query
+	// URL construction: /:/timeline?ratingKey=X&key=/library/metadata/X&state=playing&time=0&duration=1000...
+	
+	// Using ratingKey for both 'ratingKey' and 'key' param (as identifier) is a common plex pattern
+	// but the 'key' param usually expects the metadata path like '/library/metadata/123'
+	metadataPath := fmt.Sprintf("/library/metadata/%s", key)
+
+	url := fmt.Sprintf("%s/:/timeline?ratingKey=%s&key=%s&state=%s&time=%d&duration=%d&X-Plex-Token=%s",
+		c.BaseURL, key, metadataPath, state, timeMs, durationMs, c.Token)
+
+	// fmt.Printf("🌐 [Debug] Plex Request: %s\n", url) // Log complete URL if needed
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	
+	// Plex requires these headers for timeline
+	req.Header.Set("X-Plex-Client-Identifier", "plex-client-go")
+	req.Header.Set("X-Plex-Product", "Plex Client Go")
+	req.Header.Set("X-Plex-Version", "0.1.0")
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("plex timeline error: %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (c *Client) Scrobble(key string) error {
+	url := fmt.Sprintf("%s/:/scrobble?key=%s&identifier=com.plexapp.plugins.library&X-Plex-Token=%s",
+		c.BaseURL, key, c.Token)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	
+	req.Header.Set("X-Plex-Client-Identifier", "plex-client-go")
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("plex scrobble error: %d", resp.StatusCode)
+	}
+	return nil
 }

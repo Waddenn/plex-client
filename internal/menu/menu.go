@@ -26,9 +26,9 @@ func ShowMain(d *sql.DB, cfg *config.Config, p *plex.Client) {
 		case "Continue Watching":
 			ShowContinueWatching(p, cfg)
 		case "Movies":
-			ShowMovies(d, cfg)
+			ShowMovies(d, cfg, p)
 		case "Series":
-			ShowSeries(d, cfg)
+			ShowSeries(d, cfg, p)
 		}
 	}
 }
@@ -79,7 +79,8 @@ func ShowContinueWatching(p *plex.Client, cfg *config.Config) {
 
 	// Calculate resume time in seconds for mpv --start
 	start := v.ViewOffset / 1000
-	player.Play(v.Title, cfg.Plex.BaseURL+partKey, cfg, fmt.Sprintf("--start=%d", start))
+    // v.RatingKey is already string from API
+	player.Play(v.Title, cfg.Plex.BaseURL+partKey, v.RatingKey, cfg, p, fmt.Sprintf("--start=%d", start))
 }
 
 // getOnDeckAll fetches continue watching items from all sections
@@ -99,7 +100,7 @@ func getOnDeckAll(p *plex.Client) ([]plex.Video, error) {
 }
 
 // ShowMovies displays the movie browser
-func ShowMovies(d *sql.DB, cfg *config.Config) {
+func ShowMovies(d *sql.DB, cfg *config.Config, p *plex.Client) {
 	rows, err := d.Query("SELECT id, title, year, part_key FROM films ORDER BY title COLLATE NOCASE")
 	if err != nil {
 		return
@@ -110,6 +111,7 @@ func ShowMovies(d *sql.DB, cfg *config.Config) {
 	type MovieInfo struct {
 		PartKey string
 		Title   string
+        ID      int
 	}
 	infoMap := make(map[string]MovieInfo)
 
@@ -122,7 +124,7 @@ func ShowMovies(d *sql.DB, cfg *config.Config) {
 		}
 		label := fmt.Sprintf("%s (%d) |%d|", title, year, id)
 		items = append(items, label)
-		infoMap[label] = MovieInfo{PartKey: partKey, Title: title}
+		infoMap[label] = MovieInfo{PartKey: partKey, Title: title, ID: id}
 	}
 
 	exe, _ := os.Executable()
@@ -135,12 +137,17 @@ func ShowMovies(d *sql.DB, cfg *config.Config) {
 
 	info := infoMap[res.Choice]
 	if info.PartKey != "" {
-		player.Play(info.Title, cfg.Plex.BaseURL+info.PartKey, cfg)
+		args := []string{}
+		if meta, err := p.GetMetadata(strconv.Itoa(info.ID)); err == nil && meta.ViewOffset > 0 {
+			start := meta.ViewOffset / 1000
+			args = append(args, fmt.Sprintf("--start=%d", start))
+		}
+		player.Play(info.Title, cfg.Plex.BaseURL+info.PartKey, strconv.Itoa(info.ID), cfg, p, args...)
 	}
 }
 
 // ShowSeries displays the series browser
-func ShowSeries(d *sql.DB, cfg *config.Config) {
+func ShowSeries(d *sql.DB, cfg *config.Config, p *plex.Client) {
 	rows, err := d.Query("SELECT id, title FROM series ORDER BY title COLLATE NOCASE")
 	if err != nil {
 		return
@@ -170,11 +177,11 @@ func ShowSeries(d *sql.DB, cfg *config.Config) {
 	}
 
 	showID := idMap[res.Choice]
-	showSeasons(d, cfg, showID)
+	showSeasons(d, cfg, p, showID)
 }
 
 // showSeasons displays seasons for a given show
-func showSeasons(d *sql.DB, cfg *config.Config, showID int) {
+func showSeasons(d *sql.DB, cfg *config.Config, p *plex.Client, showID int) {
 	rows, err := d.Query("SELECT id, saison_index FROM saisons WHERE serie_id = ? ORDER BY saison_index", showID)
 	if err != nil {
 		return
@@ -200,11 +207,11 @@ func showSeasons(d *sql.DB, cfg *config.Config, showID int) {
 	}
 
 	seasonID := idMap[res.Choice]
-	showEpisodes(d, cfg, seasonID)
+	showEpisodes(d, cfg, p, seasonID)
 }
 
 // showEpisodes displays episodes for a given season
-func showEpisodes(d *sql.DB, cfg *config.Config, seasonID int) {
+func showEpisodes(d *sql.DB, cfg *config.Config, p *plex.Client, seasonID int) {
 	rows, err := d.Query("SELECT id, episode_index, title, part_key FROM episodes WHERE saison_id = ? ORDER BY episode_index", seasonID)
 	if err != nil {
 		return
@@ -212,7 +219,7 @@ func showEpisodes(d *sql.DB, cfg *config.Config, seasonID int) {
 	defer rows.Close()
 
 	var items []string
-	infoMap := make(map[string]struct{ Title, PartKey string })
+	infoMap := make(map[string]struct{ Title, PartKey string; ID int })
 
 	for rows.Next() {
 		var id, idx int
@@ -222,7 +229,7 @@ func showEpisodes(d *sql.DB, cfg *config.Config, seasonID int) {
 		}
 		label := fmt.Sprintf("%02d. %s |%d|", idx, title, id)
 		items = append(items, label)
-		infoMap[label] = struct{ Title, PartKey string }{title, partKey}
+		infoMap[label] = struct{ Title, PartKey string; ID int }{title, partKey, id}
 	}
 
 	exe, _ := os.Executable()
@@ -235,7 +242,12 @@ func showEpisodes(d *sql.DB, cfg *config.Config, seasonID int) {
 
 	info := infoMap[res.Choice]
 	if info.PartKey != "" {
-		player.Play(info.Title, cfg.Plex.BaseURL+info.PartKey, cfg)
+		args := []string{}
+		if meta, err := p.GetMetadata(strconv.Itoa(info.ID)); err == nil && meta.ViewOffset > 0 {
+			start := meta.ViewOffset / 1000
+			args = append(args, fmt.Sprintf("--start=%d", start))
+		}
+		player.Play(info.Title, cfg.Plex.BaseURL+info.PartKey, strconv.Itoa(info.ID), cfg, p, args...)
 	}
 }
 
@@ -298,3 +310,4 @@ func RunPreview(idStr, pType string) error {
 	}
 	return nil
 }
+
