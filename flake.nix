@@ -35,7 +35,7 @@
         version = "0.1.0";
         src = ./.;
 
-        vendorHash = "sha256-mOVKZV2zjmkcZQkFl4VDQApKTUE7QC4i7sTFJ/L5g1Q="; # Will need to be updated after first build if dependencies are added
+        vendorHash = null;
 
         nativeBuildInputs = [pkgs.makeWrapper];
         
