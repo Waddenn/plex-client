@@ -5,16 +5,20 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Waddenn/plex-client/internal/plex"
 )
 
-func Sync(p *plex.Client, d *sql.DB, force bool) error {
-	// Simple check: if DB has items, maybe skip unless force?
-	// For now, we always sync but optimistically (insert only if not exists)
-	// Or we use INSERT OR REPLACE.
-	// The original python used a check on file mtime.
+// PlexProvider interface allows mocking the Plex client
+type PlexProvider interface {
+	GetSections() ([]plex.Directory, error)
+	GetSectionAll(key string) ([]plex.Video, error)
+	GetSectionDirs(key string) ([]plex.Directory, error)
+	GetChildren(key string) ([]plex.Directory, []plex.Video, error)
+}
 
+func Sync(p PlexProvider, d *sql.DB, force bool) error {
 	sections, err := p.GetSections()
 	if err != nil {
 		return err
@@ -27,7 +31,22 @@ func Sync(p *plex.Client, d *sql.DB, force bool) error {
 	defer tx.Rollback()
 
 	for _, s := range sections {
+		// Incremental sync check
+		var lastUpdated int64
+		row := d.QueryRow("SELECT value FROM metadata WHERE key = ?", "section_"+s.Key)
+		var valStr string
+		if err := row.Scan(&valStr); err == nil {
+			lastUpdated, _ = strconv.ParseInt(valStr, 10, 64)
+		}
+
+		if !force && s.UpdatedAt > 0 && lastUpdated >= s.UpdatedAt {
+			// Section up to date
+			continue
+		}
+
+
 		if s.Type == "movie" {
+			// log.Printf("Syncing movies section: %s", s.Title)
 			videos, err := p.GetSectionAll(s.Key)
 			if err != nil {
 				log.Printf("Error fetching movies for section %s: %v", s.Title, err)
@@ -39,48 +58,45 @@ func Sync(p *plex.Client, d *sql.DB, force bool) error {
 					partKey = v.Media[0].Part[0].Key
 				}
 				genres := joinTags(v.Genre)
-				_, err := tx.Exec(`INSERT OR REPLACE INTO films (id, title, year, part_key, duration, summary, rating, genres, originallyAvailableAt) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-					v.RatingKey, v.Title, v.Year, partKey, v.Duration, v.Summary, v.Rating, genres, v.OriginallyAvailableAt)
+				updatedAt := time.Now().Unix()
+				
+				_, err := tx.Exec(`INSERT OR REPLACE INTO films (id, title, year, part_key, duration, summary, rating, genres, originallyAvailableAt, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					v.RatingKey, v.Title, v.Year, partKey, v.Duration, v.Summary, v.Rating, genres, v.OriginallyAvailableAt, updatedAt)
 				if err != nil {
 					log.Printf("Error inserting movie %s: %v", v.Title, err)
 				}
 			}
 		} else if s.Type == "show" {
-			shows, err := p.GetSectionAll(s.Key)
+			// log.Printf("Syncing shows section: %s", s.Title)
+			shows, err := p.GetSectionDirs(s.Key)
 			if err != nil {
 				log.Printf("Error fetching shows for section %s: %v", s.Title, err)
 				continue
 			}
-			for _, show := range shows { // This gets all items, check if it returns episodes? No, section/all returns Shows.
-				// We need to fetch episodes. Ideally we iterate sections.
-				// Wait, Plex /library/sections/X/all for type=show returns Shows.
-				// We then need to recurse? Or can we get all episodes?
-				// Using /library/sections/X/all?type=4 (Episode) might work to get all episodes flatly?
-				// But we need the hierarchy for the UI.
-				// Let's stick to inserting Shows, then maybe we can lazily fetch seasons? 
-				// The original script fetched seasons() and episodes().
-				
-				// Sticking to original logic:
+			for _, show := range shows {
 				genres := joinTags(show.Genre)
-				_, err := tx.Exec(`INSERT OR REPLACE INTO series (id, title, summary, rating, genres) 
-                    VALUES (?, ?, ?, ?, ?)`,
-					show.RatingKey, show.Title, show.Summary, show.Rating, genres)
+				updatedAt := time.Now().Unix()
+
+				_, err := tx.Exec(`INSERT OR REPLACE INTO series (id, title, summary, rating, genres, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?)`,
+					show.RatingKey, show.Title, show.Summary, show.Rating, genres, updatedAt)
 				if err != nil {
 					log.Printf("Error inserting show %s: %v", show.Title, err)
+					continue
 				}
 
-				// Fetch children (Seasons)?
-				// Plex API has /library/metadata/<ratingKey>/children for seasons
-				// Then /library/metadata/<seasonRatingKey>/children for episodes
-				
-				// For simplicity/performance in this Go rewrite, let's implement a recursive fetcher helper in Plex package
-				// Or use the ?includeChildren=1 or similar? No.
-				
-				// Let's recurse.
 				if err := syncSeasons(p, tx, show.RatingKey); err != nil {
 					log.Printf("Error fetching seasons for %s: %v", show.Title, err)
 				}
+			}
+		}
+
+		// Update metadata
+		if s.UpdatedAt > 0 {
+			_, err := tx.Exec(`INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)`, "section_"+s.Key, strconv.FormatInt(s.UpdatedAt, 10))
+			if err != nil {
+				log.Printf("Error updating metadata: %v", err)
 			}
 		}
 	}
@@ -88,7 +104,7 @@ func Sync(p *plex.Client, d *sql.DB, force bool) error {
 	return tx.Commit()
 }
 
-func syncSeasons(p *plex.Client, tx *sql.Tx, showID string) error {
+func syncSeasons(p PlexProvider, tx *sql.Tx, showID string) error {
 	seasons, _, err := p.GetChildren(showID)
 	if err != nil {
 		return err
@@ -98,24 +114,18 @@ func syncSeasons(p *plex.Client, tx *sql.Tx, showID string) error {
 		if season.Type != "season" {
 			continue
 		}
-		// Season metadata (summary, etc) is sparse in children view usually, but we have title/index.
-		// Key is usually /library/metadata/ID/children
-		// RatingKey is the ID.
-		
-		// Wait, Directory struct in plex package needs RatingKey.
-		// I missed adding RatingKey to Directory struct in plex/plex.go! 
-		// I should check plex/plex.go again.
-		// Assuming I fix plex/plex.go, let's write usage here.
-		
-		sIndex, _ := strconv.Atoi(season.Index) // Need to add Index/RatingKey to Directory struct
-		_, err := tx.Exec(`INSERT OR REPLACE INTO saisons (id, serie_id, saison_index, summary) 
-			VALUES (?, ?, ?, ?)`,
-			season.RatingKey, showID, sIndex, season.Summary)
+
+		sIndex, _ := strconv.Atoi(season.Index)
+		updatedAt := time.Now().Unix()
+
+		_, err := tx.Exec(`INSERT OR REPLACE INTO saisons (id, serie_id, saison_index, summary, updated_at) 
+			VALUES (?, ?, ?, ?, ?)`,
+			season.RatingKey, showID, sIndex, season.Summary, updatedAt)
 		if err != nil {
 			log.Printf("Error inserting season %s: %v", season.Title, err)
+			continue
 		}
 
-		// Fetch episodes for this season
 		_, episodes, err := p.GetChildren(season.RatingKey)
 		if err != nil {
 			log.Printf("Error fetching episodes for season %s: %v", season.Title, err)
@@ -127,9 +137,11 @@ func syncSeasons(p *plex.Client, tx *sql.Tx, showID string) error {
 			if len(e.Media) > 0 && len(e.Media[0].Part) > 0 {
 				partKey = e.Media[0].Part[0].Key
 			}
-			_, err := tx.Exec(`INSERT OR REPLACE INTO episodes (id, saison_id, episode_index, title, part_key, duration, summary, rating) 
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-				e.RatingKey, season.RatingKey, e.Index, e.Title, partKey, e.Duration, e.Summary, e.Rating)
+			eIndex := e.Index
+			
+			_, err := tx.Exec(`INSERT OR REPLACE INTO episodes (id, saison_id, episode_index, title, part_key, duration, summary, rating, updated_at) 
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				e.RatingKey, season.RatingKey, eIndex, e.Title, partKey, e.Duration, e.Summary, e.Rating, updatedAt)
 			if err != nil {
 				log.Printf("Error inserting episode %s: %v", e.Title, err)
 			}

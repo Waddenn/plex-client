@@ -33,6 +33,10 @@ type Directory struct {
 	Type      string `xml:"type,attr"`
 	Index     string `xml:"index,attr"` // Season index
 	Summary   string `xml:"summary,attr"`
+	Year      int     `xml:"year,attr"`
+	Rating    float64 `xml:"rating,attr"`
+	Genre     []Tag   `xml:"Genre"`
+	UpdatedAt int64   `xml:"updatedAt,attr"`
 }
 
 type Video struct {
@@ -98,6 +102,15 @@ func (c *Client) GetChildren(key string) ([]Directory, []Video, error) {
 		return nil, nil, err
 	}
 	return mc.Directories, mc.Videos, nil
+}
+
+func (c *Client) GetSectionDirs(key string) ([]Directory, error) {
+	url := fmt.Sprintf("%s/library/sections/%s/all?X-Plex-Token=%s", c.BaseURL, key, c.Token)
+	var mc MediaContainer
+	if err := c.getXML(url, &mc); err != nil {
+		return nil, err
+	}
+	return mc.Directories, nil
 }
 
 func (c *Client) getXML(url string, target interface{}) error {

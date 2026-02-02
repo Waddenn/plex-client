@@ -67,10 +67,31 @@ func main() {
 
 	p := plex.New(cfg.BaseURL, cfg.Token)
 
-	go func() {
-		if err := cache.Sync(p, d, *forceSync); err != nil {
+	// Check if we have data
+	hasData := false
+	var count int
+	if err := d.QueryRow("SELECT count(*) FROM films").Scan(&count); err == nil && count > 0 {
+		hasData = true
+	}
+	if !hasData {
+		if err := d.QueryRow("SELECT count(*) FROM series").Scan(&count); err == nil && count > 0 {
+			hasData = true
 		}
-	}()
+	}
+
+	if !hasData || *forceSync {
+		fmt.Println("🚀 Syncing library for the first time... This might take a while.")
+		if err := cache.Sync(p, d, *forceSync); err != nil {
+			log.Printf("Sync error: %v", err)
+		}
+	} else {
+		// update in background
+		go func() {
+			if err := cache.Sync(p, d, false); err != nil {
+				log.Printf("Background sync error: %v", err)
+			}
+		}()
+	}
 
 	mainMenu(d, cfg, p)
 }

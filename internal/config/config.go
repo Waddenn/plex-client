@@ -16,7 +16,7 @@ func ConfigDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(configDir, "plex-minimal")
+	dir := filepath.Join(configDir, "plex-client")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
@@ -28,7 +28,7 @@ func CacheDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(cacheDir, "plex-minimal")
+	dir := filepath.Join(cacheDir, "plex-client")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
