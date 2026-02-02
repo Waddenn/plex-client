@@ -1,55 +1,67 @@
 {
   description = "Minimal Plex client with mpv and ModernX";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
 
   outputs = {
     self,
     nixpkgs,
-  }: let
-    system = "x86_64-linux";
-    pkgs = import nixpkgs {inherit system;};
+    flake-utils,
+  }:
+    flake-utils.lib.eachDefaultSystem (system: let
+      pkgs = import nixpkgs {inherit system;};
 
-    pythonEnv = pkgs.python3.withPackages (ps: with ps; [plexapi requests]);
-
-    modernx = pkgs.stdenv.mkDerivation {
-      name = "modernx-osc";
-      src = pkgs.fetchFromGitHub {
-        owner = "cyl0";
-        repo = "ModernX";
-        rev = "3f2ed6b";
-        sha256 = "sha256-q7DwyfmOIM7K1L7vvCpq1EM0RVpt9E/drhAa9rLYb1k=";
+      modernx = pkgs.stdenv.mkDerivation {
+        name = "modernx-osc";
+        src = pkgs.fetchFromGitHub {
+          owner = "cyl0";
+          repo = "ModernX";
+          rev = "3f2ed6b";
+          sha256 = "sha256-q7DwyfmOIM7K1L7vvCpq1EM0RVpt9E/drhAa9rLYb1k=";
+        };
+        installPhase = ''
+          mkdir -p $out/scripts
+          mkdir -p $out/fonts
+          cp modernx.lua $out/scripts/
+          cp Material-Design-Iconic-Font.ttf $out/fonts/
+        '';
       };
-      installPhase = ''
-        mkdir -p $out/scripts
-        mkdir -p $out/fonts
-        cp modernx.lua $out/scripts/
-        cp Material-Design-Iconic-Font.ttf $out/fonts/
-      '';
-    };
-  in {
-    packages.${system}.plex-minimal = pkgs.writeShellApplication {
-      name = "plex-minimal";
-      runtimeInputs = [pythonEnv pkgs.mpv pkgs.fzf];
+    in {
+      packages.default = pkgs.buildGoModule {
+        pname = "plex-client";
+        version = "0.1.0";
+        src = pkgs.lib.cleanSource ./.; # Exclude .git, result, etc.
 
-      text = ''
-        export BUILD_CACHE=${./build_cache.py}
+        vendorHash = "sha256-Fpf+nL5yl4222ugWZfTQI88NHCu/t3orDnulNkPHuK4=";
 
-        TMPDIR=$(mktemp -d)
-        export MPV_MODERNX_DIR="$TMPDIR"
 
-        mkdir -p "$MPV_MODERNX_DIR/scripts" "$MPV_MODERNX_DIR/fonts"
-        cp ${modernx}/scripts/modernx.lua "$MPV_MODERNX_DIR/scripts/"
-        cp ${modernx}/fonts/Material-Design-Iconic-Font.ttf "$MPV_MODERNX_DIR/fonts/"
+        # Skip tests during build for faster compilation
+        doCheck = false;
 
-        echo "osc=no" >> "$MPV_MODERNX_DIR/mpv.conf"
-        echo "border=no" >> "$MPV_MODERNX_DIR/mpv.conf"
+        # Ignore vendor directory, let Go manage dependencies
+        buildFlags = ["-mod=mod"];
 
-        export MPV_CONFIG_OVERRIDE="--config-dir=$MPV_MODERNX_DIR"
-        exec python3 ${./plex-player.py} "$@"
-      '';
-    };
+        nativeBuildInputs = [pkgs.makeWrapper];
+        
+        postInstall = ''
+          wrapProgram $out/bin/plex-client \
+            --suffix PATH : ${pkgs.lib.makeBinPath [pkgs.mpv pkgs.fzf]} \
+            --set MPV_MODERNX_DIR "${modernx}"
+        '';
+      };
 
-    defaultPackage.${system} = self.packages.${system}.plex-minimal;
-  };
+      devShells.default = pkgs.mkShell {
+        buildInputs = with pkgs; [
+          go
+          gopls
+          gotools
+          go-tools
+          mpv
+          fzf
+        ];
+      };
+    });
 }
