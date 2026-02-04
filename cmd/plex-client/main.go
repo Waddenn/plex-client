@@ -67,7 +67,7 @@ func main() {
 	}
 	defer d.Close()
 
-	p := plex.New(cfg.Plex.BaseURL, cfg.Plex.Token)
+	p := plex.New(cfg.Plex.BaseURL, cfg.Plex.Token, "plex-client-go")
 
 	// Check if we have data
 	hasData := false
