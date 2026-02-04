@@ -15,7 +15,7 @@ import (
 	"github.com/Waddenn/plex-client/internal/plex"
 )
 
-func Play(title, url string, ratingKey string, cfg *config.Config, pClient *plex.Client, extraArgs ...string) error {
+func Play(title, url string, ratingKey string, cfg *config.Config, pClient *plex.Client, extraArgs ...string) (bool, error) {
 	fullURL := fmt.Sprintf("%s?X-Plex-Token=%s", url, cfg.Plex.Token)
 	
 	// Create a temporary IPC socket path
@@ -73,12 +73,25 @@ func Play(title, url string, ratingKey string, cfg *config.Config, pClient *plex
 	cmd := exec.Command("mpv", args...)
 	
 	// Start monitoring routine
-	go monitorProgress(ipcSocket, ratingKey, pClient)
+	doneCh := make(chan bool)
+	go monitorProgress(ipcSocket, ratingKey, pClient, doneCh)
 
-	return cmd.Run()
+	err := cmd.Run()
+	
+	// Wait for monitor to decide if we finished
+	completed := <-doneCh
+	
+	if err != nil {
+		return false, err
+	}
+	return completed, nil
 }
 
-func monitorProgress(socketPath string, ratingKey string, p *plex.Client) {
+func monitorProgress(socketPath string, ratingKey string, p *plex.Client, doneCh chan<- bool) {
+	// Default to false
+	finalStatus := false
+	defer func() { doneCh <- finalStatus }()
+
 	// Wait for socket to be created
 	for i := 0; i < 20; i++ {
 		if _, err := os.Stat(socketPath); err == nil {
@@ -128,6 +141,13 @@ func monitorProgress(socketPath string, ratingKey string, p *plex.Client) {
 			case "pause":
 				if v, ok := event.Data.(bool); ok {
 					paused = v
+					state := "playing"
+					if paused {
+						state = "paused"
+					}
+					// Report immediate state change
+					go p.ReportProgress(ratingKey, int64(currentTime*1000), int64(duration*1000), state)
+					lastReport = time.Now()
 				}
 			}
 
@@ -142,6 +162,7 @@ func monitorProgress(socketPath string, ratingKey string, p *plex.Client) {
 	// When loop ends (mpv closed), check if we watched enough to scrobble
 	if duration > 0 && currentTime > 0 && (currentTime/duration) > 0.90 {
 		p.Scrobble(ratingKey)
+		finalStatus = true
 	} else if duration > 0 {
 		// Report point where we stopped
 		p.ReportProgress(ratingKey, int64(currentTime*1000), int64(duration*1000), "stopped")

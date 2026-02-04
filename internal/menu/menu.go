@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Waddenn/plex-client/internal/config"
 	"github.com/Waddenn/plex-client/internal/db"
@@ -77,10 +78,10 @@ func ShowContinueWatching(p *plex.Client, cfg *config.Config) {
 		return
 	}
 
-	// Calculate resume time in seconds for mpv --start
-	start := v.ViewOffset / 1000
+	// Calculate resume time in seconds
+	start := v.ViewOffset
     // v.RatingKey is already string from API
-	player.Play(v.Title, cfg.Plex.BaseURL+partKey, v.RatingKey, cfg, p, fmt.Sprintf("--start=%d", start))
+	playQueueLoop(cfg, p, v.RatingKey, start)
 }
 
 // getOnDeckAll fetches continue watching items from all sections
@@ -137,12 +138,11 @@ func ShowMovies(d *sql.DB, cfg *config.Config, p *plex.Client) {
 
 	info := infoMap[res.Choice]
 	if info.PartKey != "" {
-		args := []string{}
+		start := 0
 		if meta, err := p.GetMetadata(strconv.Itoa(info.ID)); err == nil && meta.ViewOffset > 0 {
-			start := meta.ViewOffset / 1000
-			args = append(args, fmt.Sprintf("--start=%d", start))
+			start = meta.ViewOffset
 		}
-		player.Play(info.Title, cfg.Plex.BaseURL+info.PartKey, strconv.Itoa(info.ID), cfg, p, args...)
+		playQueueLoop(cfg, p, strconv.Itoa(info.ID), start)
 	}
 }
 
@@ -242,12 +242,11 @@ func showEpisodes(d *sql.DB, cfg *config.Config, p *plex.Client, seasonID int) {
 
 	info := infoMap[res.Choice]
 	if info.PartKey != "" {
-		args := []string{}
+		start := 0
 		if meta, err := p.GetMetadata(strconv.Itoa(info.ID)); err == nil && meta.ViewOffset > 0 {
-			start := meta.ViewOffset / 1000
-			args = append(args, fmt.Sprintf("--start=%d", start))
+			start = meta.ViewOffset
 		}
-		player.Play(info.Title, cfg.Plex.BaseURL+info.PartKey, strconv.Itoa(info.ID), cfg, p, args...)
+		playQueueLoop(cfg, p, strconv.Itoa(info.ID), start)
 	}
 }
 
@@ -309,5 +308,58 @@ func RunPreview(idStr, pType string) error {
 		fmt.Println(summary)
 	}
 	return nil
+}
+
+func playQueueLoop(cfg *config.Config, p *plex.Client, initialKey string, initialViewOffset int) {
+	fmt.Printf("[DEBUG] playQueueLoop starting for key: %s\n", initialKey)
+	
+	// Fetch full metadata to get parent keys for Play Queue creation
+	video, err := p.GetMetadata(initialKey)
+	if err != nil {
+		fmt.Printf("Error fetching metadata for key %s: %v\n", initialKey, err)
+		return
+	}
+
+	pq, err := p.CreatePlayQueue(*video)
+	if err != nil {
+		fmt.Printf("Error creating Play Queue: %v\n", err)
+		return
+	}
+
+	for i, item := range pq.Items {
+		if len(item.Media) == 0 || len(item.Media[0].Part) == 0 {
+			continue
+		}
+		partKey := item.Media[0].Part[0].Key
+		
+		title := item.Title
+		if item.Type == "episode" && item.GrandparentTitle != "" {
+			title = fmt.Sprintf("%s - S%02dE%02d - %s", item.GrandparentTitle, item.ParentIndex, item.Index, item.Title)
+		}
+
+		args := []string{}
+		// Only apply resume offset to the specific item triggered
+		if item.RatingKey == initialKey && initialViewOffset > 0 {
+			args = append(args, fmt.Sprintf("--start=%d", initialViewOffset/1000))
+		}
+
+		fmt.Printf("▶️ Playing: %s\n", title)
+		completed, err := player.Play(title, cfg.Plex.BaseURL+partKey, item.RatingKey, cfg, p, args...)
+		if err != nil {
+			fmt.Printf("Playback error: %v\n", err)
+			break
+		}
+
+		if !completed {
+			fmt.Println("⏹️ Playback stopped by user.")
+			break
+		}
+
+		// If there are more items, countdown
+		if i < len(pq.Items)-1 {
+			fmt.Println("⏳ Next episode starting in 3 seconds... (Press Ctrl+C to cancel)")
+			time.Sleep(3 * time.Second)
+		}
+	}
 }
 
