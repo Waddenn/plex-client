@@ -46,12 +46,16 @@ func initTestDB(t *testing.T) *sql.DB {
 	}
 
 	queries := []string{
+
 		`CREATE TABLE IF NOT EXISTS series (
             id INTEGER PRIMARY KEY,
             title TEXT,
             summary TEXT,
             rating REAL,
             genres TEXT,
+            content_rating TEXT,
+            studio TEXT,
+            added_at INTEGER,
             updated_at INTEGER
         );`,
 		`CREATE TABLE IF NOT EXISTS saisons (
@@ -84,6 +88,9 @@ func initTestDB(t *testing.T) *sql.DB {
             rating REAL,
             genres TEXT,
             originallyAvailableAt TEXT,
+            content_rating TEXT,
+            studio TEXT,
+            added_at INTEGER,
             updated_at INTEGER
         );`,
 		`CREATE TABLE IF NOT EXISTS metadata (
