@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Waddenn/plex-client/internal/appinfo"
 	"github.com/Waddenn/plex-client/internal/auth"
 	"github.com/Waddenn/plex-client/internal/config"
 	"github.com/Waddenn/plex-client/internal/tui/shared"
@@ -44,7 +45,7 @@ const (
 	stateSuccess
 )
 
-func NewModel(cfg *config.Config) Model {
+func NewModel(cfg *config.Config, info appinfo.Info) Model {
 	clientID := cfg.Plex.ClientIdentifier
 	if clientID == "" {
 		clientID = "plex-client-tui-fallback"
@@ -52,7 +53,7 @@ func NewModel(cfg *config.Config) Model {
 
 	return Model{
 		cfg:        cfg,
-		authClient: auth.NewAuthClient(clientID, "Plex Client TUI", "0.1.0"), // TODO: Pass version
+		authClient: auth.NewAuthClient(clientID, info),
 		state:      stateInit,
 	}
 }
