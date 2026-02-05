@@ -45,11 +45,9 @@ func main() {
 		}
 	}
 
-	if cfg.Plex.BaseURL == "" || cfg.Plex.Token == "" {
-		fmt.Println("❌ Missing configuration.")
-		fmt.Println("Usage: plex-client --baseurl URL --token TOKEN")
-		fmt.Println("   or create ~/.config/plex-client/config.toml")
-		os.Exit(1)
+	// Check for commands
+	if len(os.Args) > 1 && os.Args[1] == "login" {
+		fmt.Println("ℹ️  Login is now handled directly in the TUI.")
 	}
 
 	d, err := db.Open()
@@ -75,18 +73,21 @@ func main() {
 	// Use config sync settings
 	forceSyncFlag := *forceSync || cfg.Sync.ForceSyncOnStart
 
-	if !hasData || forceSyncFlag {
-		fmt.Println("🚀 Syncing library for the first time... This might take a while.")
-		if err := cache.Sync(p, d, forceSyncFlag); err != nil {
-			log.Printf("Sync error: %v", err)
-		}
-	} else if cfg.Sync.AutoSync {
-		// Background sync
-		go func() {
-			if err := cache.Sync(p, d, false); err != nil {
-				log.Printf("Background sync error: %v", err)
+	// Only attempt sync if we are authenticated
+	if cfg.Plex.Token != "" {
+		if !hasData || forceSyncFlag {
+			fmt.Println("🚀 Syncing library for the first time... This might take a while.")
+			if err := cache.Sync(p, d, forceSyncFlag); err != nil {
+				log.Printf("Sync error: %v", err)
 			}
-		}()
+		} else if cfg.Sync.AutoSync {
+			// Background sync
+			go func() {
+				if err := cache.Sync(p, d, false); err != nil {
+					log.Printf("Background sync error: %v", err)
+				}
+			}()
+		}
 	}
 
 	m := tui.NewModel(d, cfg, p)

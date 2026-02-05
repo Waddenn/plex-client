@@ -96,4 +96,5 @@ const (
 	ViewPlayer
 	ViewCountdown
 	ViewSettings
+	ViewLogin
 )
