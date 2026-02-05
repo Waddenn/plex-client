@@ -15,9 +15,9 @@ import (
 	"github.com/Waddenn/plex-client/internal/plex"
 )
 
-func Play(title, url string, ratingKey string, cfg *config.Config, pClient *plex.Client, extraArgs ...string) (bool, error) {
+func Play(title, url string, ratingKey string, startTimeMs int64, cfg *config.Config, pClient *plex.Client, extraArgs ...string) (bool, error) {
 	fullURL := fmt.Sprintf("%s?X-Plex-Token=%s", url, cfg.Plex.Token)
-	
+
 	// Create a temporary IPC socket path
 	ipcSocket := filepath.Join(os.TempDir(), fmt.Sprintf("plex-mpv-%d.sock", time.Now().UnixNano()))
 
@@ -25,8 +25,19 @@ func Play(title, url string, ratingKey string, cfg *config.Config, pClient *plex
 		"--force-window=yes",
 		"--fullscreen",
 		"--msg-level=all=warn,vo=error",
+		"--vo=gpu",                 // Revert to stable GPU output
+		"--hwdec=no",               // Disable hardware decoding (stability)
+		"--target-colorspace-hint", // Essential for fixing faded colors
+		"--panscan=1.0",            // Scaling: Fill screen by cropping black bars
 		fmt.Sprintf("--title=%s", title),
 		fmt.Sprintf("--input-ipc-server=%s", ipcSocket),
+	}
+
+	// Add start time if > 0
+	if startTimeMs > 0 {
+		// Convert ms to seconds (float)
+		seconds := float64(startTimeMs) / 1000.0
+		args = append(args, fmt.Sprintf("--start=%.2f", seconds))
 	}
 
 	// Setup ModernX environment if available
@@ -34,15 +45,15 @@ func Play(title, url string, ratingKey string, cfg *config.Config, pClient *plex
 		tmpDir, err := os.MkdirTemp("", "plex-client-mpv-*")
 		if err == nil {
 			defer os.RemoveAll(tmpDir)
-			
+
 			// Setup directories
 			os.Mkdir(filepath.Join(tmpDir, "scripts"), 0755)
 			os.Mkdir(filepath.Join(tmpDir, "fonts"), 0755)
-			
+
 			// Copy/Symlink ModernX files
 			os.Symlink(filepath.Join(modernXDir, "scripts", "modernx.lua"), filepath.Join(tmpDir, "scripts", "modernx.lua"))
 			os.Symlink(filepath.Join(modernXDir, "fonts", "Material-Design-Iconic-Font.ttf"), filepath.Join(tmpDir, "fonts", "Material-Design-Iconic-Font.ttf"))
-			
+
 			// Write mpv.conf
 			// We try to include the user's original mpv.conf to respect their settings
 			confContent := ""
@@ -54,14 +65,14 @@ func Play(title, url string, ratingKey string, cfg *config.Config, pClient *plex
 			}
 			// Enforce settings required for ModernX
 			confContent += "osc=no\nborder=no\n"
-			
+
 			confPath := filepath.Join(tmpDir, "mpv.conf")
 			os.WriteFile(confPath, []byte(confContent), 0644)
-			
+
 			args = append(args, fmt.Sprintf("--config-dir=%s", tmpDir))
 		}
 	}
-	
+
 	// Add override args from env
 	if override := os.Getenv("MPV_CONFIG_OVERRIDE"); override != "" {
 		args = append(args, strings.Fields(override)...)
@@ -71,16 +82,16 @@ func Play(title, url string, ratingKey string, cfg *config.Config, pClient *plex
 	args = append(args, fullURL)
 
 	cmd := exec.Command("mpv", args...)
-	
+
 	// Start monitoring routine
 	doneCh := make(chan bool)
 	go monitorProgress(ipcSocket, ratingKey, pClient, doneCh)
 
 	err := cmd.Run()
-	
+
 	// Wait for monitor to decide if we finished
 	completed := <-doneCh
-	
+
 	if err != nil {
 		return false, err
 	}
@@ -158,7 +169,7 @@ func monitorProgress(socketPath string, ratingKey string, p *plex.Client, doneCh
 			}
 		}
 	}
-	
+
 	// When loop ends (mpv closed), check if we watched enough to scrobble
 	if duration > 0 && currentTime > 0 && (currentTime/duration) > 0.90 {
 		p.Scrobble(ratingKey)

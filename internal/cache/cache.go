@@ -13,7 +13,7 @@ import (
 // PlexProvider interface allows mocking the Plex client
 type PlexProvider interface {
 	GetSections() ([]plex.Directory, error)
-	GetSectionAll(key string) ([]plex.Video, error)
+	GetSectionAll(key string) ([]plex.Directory, []plex.Video, error) // Updated signature
 	GetSectionDirs(key string) ([]plex.Directory, error)
 	GetChildren(key string) ([]plex.Directory, []plex.Video, error)
 }
@@ -47,7 +47,7 @@ func Sync(p PlexProvider, d *sql.DB, force bool) error {
 
 		if s.Type == "movie" {
 			// log.Printf("Syncing movies section: %s", s.Title)
-			videos, err := p.GetSectionAll(s.Key)
+			_, videos, err := p.GetSectionAll(s.Key) // Ignore Dirs, use Videos
 			if err != nil {
 				log.Printf("Error fetching movies for section %s: %v", s.Title, err)
 				continue

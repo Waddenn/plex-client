@@ -9,8 +9,9 @@ import (
 	"github.com/Waddenn/plex-client/internal/cache"
 	"github.com/Waddenn/plex-client/internal/config"
 	"github.com/Waddenn/plex-client/internal/db"
-	"github.com/Waddenn/plex-client/internal/menu"
 	"github.com/Waddenn/plex-client/internal/plex"
+	"github.com/Waddenn/plex-client/internal/tui"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
@@ -18,18 +19,8 @@ func main() {
 		baseURLFlag = flag.String("baseurl", "", "Plex server BaseURL")
 		tokenFlag   = flag.String("token", "", "Plex Token")
 		forceSync   = flag.Bool("force-sync", false, "Force full cache sync")
-		previewCmd  = flag.String("preview", "", "Internal: Execute preview for item ID")
-		previewType = flag.String("preview-type", "movie", "Internal: Preview type (movie, series, episode)")
 	)
 	flag.Parse()
-
-	if *previewCmd != "" {
-		if err := menu.RunPreview(*previewCmd, *previewType); err != nil {
-			fmt.Printf("Error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -83,7 +74,7 @@ func main() {
 
 	// Use config sync settings
 	forceSyncFlag := *forceSync || cfg.Sync.ForceSyncOnStart
-	
+
 	if !hasData || forceSyncFlag {
 		fmt.Println("🚀 Syncing library for the first time... This might take a while.")
 		if err := cache.Sync(p, d, forceSyncFlag); err != nil {
@@ -98,5 +89,9 @@ func main() {
 		}()
 	}
 
-	menu.ShowMain(d, cfg, p)
+	m := tui.NewModel(d, cfg, p)
+	if _, err := tea.NewProgram(&m, tea.WithAltScreen()).Run(); err != nil {
+		fmt.Printf("Error running TUI: %v\n", err)
+		os.Exit(1)
+	}
 }

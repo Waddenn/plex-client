@@ -40,40 +40,58 @@ type MediaContainer struct {
 }
 
 type Directory struct {
-	RatingKey string `xml:"ratingKey,attr"`
-	Key       string `xml:"key,attr"`
-	Title     string `xml:"title,attr"`
-	Type      string `xml:"type,attr"`
-	Index     string `xml:"index,attr"` // Season index
-	Summary   string `xml:"summary,attr"`
-	Year      int     `xml:"year,attr"`
-	Rating    float64 `xml:"rating,attr"`
-	Genre     []Tag   `xml:"Genre"`
-	UpdatedAt int64   `xml:"updatedAt,attr"`
+	RatingKey     string  `xml:"ratingKey,attr"`
+	Key           string  `xml:"key,attr"`
+	Title         string  `xml:"title,attr"`
+	Type          string  `xml:"type,attr"`
+	Index         string  `xml:"index,attr"` // Season index
+	Summary       string  `xml:"summary,attr"`
+	Year          int     `xml:"year,attr"`
+	Rating        float64 `xml:"rating,attr"`
+	Genre         []Tag   `xml:"Genre"`
+	Director      []Tag   `xml:"Director"`
+	Writer        []Tag   `xml:"Writer"`
+	Studio        string  `xml:"studio,attr"`
+	ContentRating string  `xml:"contentRating,attr"`
+	Role          []Role  `xml:"Role"`
+	UpdatedAt     int64   `xml:"updatedAt,attr"`
+	AddedAt       int64   `xml:"addedAt,attr"`
 }
 
 type Video struct {
-	RatingKey            string  `xml:"ratingKey,attr"`
-	Key                  string  `xml:"key,attr"`
-	ParentRatingKey      string  `xml:"parentRatingKey,attr"`
-	GrandparentRatingKey string  `xml:"grandparentRatingKey,attr"`
-	Title                string  `xml:"title,attr"`
-	Summary              string  `xml:"summary,attr"`
-	Year                 int     `xml:"year,attr"`
-	Index                int     `xml:"index,attr"` // Episode index
-	ParentIndex          int     `xml:"parentIndex,attr"` // Season index
-	Duration             int     `xml:"duration,attr"`
-	Rating               float64 `xml:"rating,attr"`
-	OriginallyAvailableAt string `xml:"originallyAvailableAt,attr"`
-	Type                 string  `xml:"type,attr"`
-	GrandparentTitle     string  `xml:"grandparentTitle,attr"`
-	ViewOffset           int     `xml:"viewOffset,attr"`
-	Media                []Media `xml:"Media"`
-	Genre                []Tag   `xml:"Genre"`
+	RatingKey             string  `xml:"ratingKey,attr"`
+	Key                   string  `xml:"key,attr"`
+	ParentRatingKey       string  `xml:"parentRatingKey,attr"`
+	GrandparentRatingKey  string  `xml:"grandparentRatingKey,attr"`
+	Title                 string  `xml:"title,attr"`
+	Summary               string  `xml:"summary,attr"`
+	Year                  int     `xml:"year,attr"`
+	Index                 int     `xml:"index,attr"`       // Episode index
+	ParentIndex           int     `xml:"parentIndex,attr"` // Season index
+	Duration              int     `xml:"duration,attr"`
+	Rating                float64 `xml:"rating,attr"`
+	OriginallyAvailableAt string  `xml:"originallyAvailableAt,attr"`
+	Type                  string  `xml:"type,attr"`
+	GrandparentTitle      string  `xml:"grandparentTitle,attr"`
+	ViewOffset            int     `xml:"viewOffset,attr"`
+	ViewCount             int     `xml:"viewCount,attr"`
+	Studio                string  `xml:"studio,attr"`
+	ContentRating         string  `xml:"contentRating,attr"`
+	Media                 []Media `xml:"Media"`
+	Genre                 []Tag   `xml:"Genre"`
+	Director              []Tag   `xml:"Director"`
+	Writer                []Tag   `xml:"Writer"`
+	Role                  []Role  `xml:"Role"`
+	AddedAt               int64   `xml:"addedAt,attr"`
 }
 
 type Media struct {
-	Part []Part `xml:"Part"`
+	VideoResolution string `xml:"videoResolution,attr"`
+	VideoCodec      string `xml:"videoCodec,attr"`
+	AudioCodec      string `xml:"audioCodec,attr"`
+	AudioChannels   int    `xml:"audioChannels,attr"`
+	AspectRatio     string `xml:"aspectRatio,attr"`
+	Part            []Part `xml:"Part"`
 }
 
 type Part struct {
@@ -82,6 +100,11 @@ type Part struct {
 
 type Tag struct {
 	Tag string `xml:"tag,attr"`
+}
+
+type Role struct {
+	Tag  string `xml:"tag,attr"`
+	Role string `xml:"role,attr"`
 }
 
 // Do sends an HTTP request with standard headers and retry logic.
@@ -124,7 +147,6 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return nil, fmt.Errorf("request failed after %d retries: %v", maxRetries, lastErr)
 }
 
-
 func (c *Client) GetSections() ([]Directory, error) {
 	url := fmt.Sprintf("%s/library/sections", c.BaseURL)
 	var mc MediaContainer
@@ -134,13 +156,14 @@ func (c *Client) GetSections() ([]Directory, error) {
 	return mc.Directories, nil
 }
 
-func (c *Client) GetSectionAll(key string) ([]Video, error) {
+func (c *Client) GetSectionAll(key string) ([]Directory, []Video, error) {
 	url := fmt.Sprintf("%s/library/sections/%s/all", c.BaseURL, key)
 	var mc MediaContainer
 	if err := c.getXML(url, &mc); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return mc.Videos, nil
+	// Return both. For movies, Dirs will be empty. For Shows, Videos might be empty (or contain episodes if flattened? usually Shows are Dirs)
+	return mc.Directories, mc.Videos, nil
 }
 
 func (c *Client) GetOnDeck(key string) ([]Video, error) {
@@ -217,7 +240,7 @@ func (c *Client) ReportProgress(key string, timeMs int64, durationMs int64, stat
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("plex timeline error: %d", resp.StatusCode)
 	}
@@ -233,13 +256,13 @@ func (c *Client) Scrobble(key string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	resp, err := c.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("plex scrobble error: %d", resp.StatusCode)
 	}
@@ -247,18 +270,17 @@ func (c *Client) Scrobble(key string) error {
 }
 
 type PlayQueue struct {
-	PlayQueueID          string `xml:"playQueueID,attr"`
-	PlayQueueSelectedItemID string `xml:"playQueueSelectedItemID,attr"`
-	PlayQueueSelectedItemOffset int `xml:"playQueueSelectedItemOffset,attr"`
-	Items                []Video `xml:"Video"`
+	PlayQueueID                 string  `xml:"playQueueID,attr"`
+	PlayQueueSelectedItemID     string  `xml:"playQueueSelectedItemID,attr"`
+	PlayQueueSelectedItemOffset int     `xml:"playQueueSelectedItemOffset,attr"`
+	Items                       []Video `xml:"Video"`
 }
 
 type PlayQueueContainer struct {
-	PlayQueueID          string `xml:"playQueueID,attr"`
-	PlayQueueSelectedItemID string `xml:"playQueueSelectedItemID,attr"`
-	Items                []Video `xml:"Video"`
+	PlayQueueID             string  `xml:"playQueueID,attr"`
+	PlayQueueSelectedItemID string  `xml:"playQueueSelectedItemID,attr"`
+	Items                   []Video `xml:"Video"`
 }
-
 
 func (c *Client) GetMachineIdentifier() (string, error) {
 	if c.MachineIdentifier != "" {
@@ -283,9 +305,9 @@ func (c *Client) CreatePlayQueue(item Video) (*PlayQueueContainer, error) {
 	params.Set("type", "video")
 	params.Set("continuous", "1") // Enable binge watching
 	params.Set("repeat", "0")
-	
+
 	var uri string
-	
+
 	if item.Type == "episode" {
 		// For episodes, we want the Season as the scope (URI) and the Episode as the start point (Key)
 		// URI format: server://<MachineID>/com.plexapp.plugins.library/library/metadata/<SeasonID>
@@ -296,38 +318,30 @@ func (c *Client) CreatePlayQueue(item Video) (*PlayQueueContainer, error) {
 		uri = fmt.Sprintf("server://%s/com.plexapp.plugins.library/library/metadata/%s", machineID, item.RatingKey)
 		// Key param is optional for movies, but maybe good for consistency?
 	}
-	
+
 	params.Set("uri", uri)
 
 	endpoint := fmt.Sprintf("%s/playQueues?%s", c.BaseURL, params.Encode())
-	fmt.Printf("[DEBUG] Creating PlayQueue at: %s\n", endpoint)
-	
+
 	req, err := http.NewRequest("POST", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
-	
-	// Headers are handled by c.Do, but we might want to ensure specific ones?
-	// The standard client headers seem sufficient based on debug tests using p.Do
-	
+
 	resp, err := c.Do(req)
 	if err != nil {
-		fmt.Printf("[DEBUG] PlayQueue Request failed: %v\n", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		fmt.Printf("[DEBUG] PlayQueue HTTP Status: %d\n", resp.StatusCode)
 		return nil, fmt.Errorf("plex playqueue error: %d", resp.StatusCode)
 	}
 
 	var mc PlayQueueContainer
 	if err := xml.NewDecoder(resp.Body).Decode(&mc); err != nil {
-		fmt.Printf("[DEBUG] PlayQueue Decode error: %v\n", err)
 		return nil, err
 	}
-	
-	fmt.Printf("[DEBUG] PlayQueue Created. Items: %d\n", len(mc.Items))
+
 	return &mc, nil
 }
