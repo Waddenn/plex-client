@@ -2,7 +2,6 @@ package settings
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/Waddenn/plex-client/internal/config"
 	"github.com/Waddenn/plex-client/internal/tui/shared"
@@ -128,55 +127,37 @@ func rotate(current string, options []string, delta int) string {
 }
 
 func (m Model) View() string {
-	width := m.width
-	if width < 20 {
-		width = 20
-	}
-	height := m.height
-	if height < 10 {
-		height = 10
-	}
+	width := shared.ClampMin(m.width, 20)
+	height := shared.ClampMin(m.height, 10)
 
 	// 1. Render Header
-	header := shared.StyleHeader.Copy().Width(width).Render("⚙️ Settings")
-	headerHeight := lipgloss.Height(header)
+	header, headerHeight := shared.RenderHeaderLegacySafe("⚙️ Settings", width)
 
 	// 2. Render Footer
 	footerHelp := "[esc/q/backspace] Back • [↑/↓] Navigate • [←/→/enter] Change"
-	space := width - lipgloss.Width(footerHelp) - 2
-	footerContent := footerHelp
-	if space > 0 {
-		footerContent = strings.Repeat(" ", space) + footerHelp
-	}
-	footer := shared.StyleFooter.Copy().Width(width).Render(footerContent)
-	footerHeight := lipgloss.Height(footer)
+	footer, footerHeight := shared.RenderFooterLegacySafe("", footerHelp, width)
 	bodyHeight := height - headerHeight - footerHeight
 	if bodyHeight < 3 {
 		bodyHeight = 3
 	}
 
-	settings := []string{
-		m.renderToggle("Use CPU", "Software Decoding", m.cfg.Player.UseCPU, m.cursor == SettingUseCPU, width),
-		m.renderChoice("Hardware Decoding", m.cfg.Player.HWDec, m.cursor == SettingHWDec),
-		m.renderChoice("Video Output", m.cfg.Player.VO, m.cursor == SettingVO),
-		m.renderChoice("HDR Tone Mapping", m.cfg.Player.ToneMapping, m.cursor == SettingToneMapping),
-		m.renderToggle("Subtitles", "Enabled", m.cfg.Player.SubtitlesEnabled, m.cursor == SettingSubtitles, width),
-		m.renderChoice("Subtitles Language", defaultAuto(m.cfg.Player.SubtitlesLang), m.cursor == SettingSubLang),
-		m.renderChoice("Audio Language", defaultAuto(m.cfg.Player.AudioLang), m.cursor == SettingAudioLang),
-		m.renderToggle("UI Icons", "Use icons in menus", m.cfg.UI.UseIcons, m.cursor == SettingIcons, width),
-	}
-
-	content := lipgloss.JoinVertical(lipgloss.Left, settings...)
-
 	// Ensure main body has a fixed height by using a container
 	bodyContainer := lipgloss.NewStyle().Height(bodyHeight)
 
-	if width > 70 {
-		leftWidth := int(float64(width) * 0.55)
-		if leftWidth < 38 {
-			leftWidth = 38
+	if width > shared.SplitThreshold {
+		leftWidth, rightWidth := shared.SplitWidths(width, shared.SplitLeftRatio, shared.SplitMinLeft, shared.SplitMinRight)
+
+		settings := []string{
+			m.renderToggle("Use CPU", "Software Decoding", m.cfg.Player.UseCPU, m.cursor == SettingUseCPU, leftWidth),
+			m.renderChoice("Hardware Decoding", m.cfg.Player.HWDec, m.cursor == SettingHWDec, leftWidth),
+			m.renderChoice("Video Output", m.cfg.Player.VO, m.cursor == SettingVO, leftWidth),
+			m.renderChoice("HDR Tone Mapping", m.cfg.Player.ToneMapping, m.cursor == SettingToneMapping, leftWidth),
+			m.renderToggle("Subtitles", "Enabled", m.cfg.Player.SubtitlesEnabled, m.cursor == SettingSubtitles, leftWidth),
+			m.renderChoice("Subtitles Language", defaultAuto(m.cfg.Player.SubtitlesLang), m.cursor == SettingSubLang, leftWidth),
+			m.renderChoice("Audio Language", defaultAuto(m.cfg.Player.AudioLang), m.cursor == SettingAudioLang, leftWidth),
+			m.renderToggle("UI Icons", "Use icons in menus", m.cfg.UI.UseIcons, m.cursor == SettingIcons, leftWidth),
 		}
-		rightWidth := width - leftWidth
+		content := lipgloss.JoinVertical(lipgloss.Left, settings...)
 
 		left := lipgloss.NewStyle().Width(leftWidth).Render(content)
 		right := m.renderTipPanel(rightWidth, bodyHeight)
@@ -185,18 +166,28 @@ func (m Model) View() string {
 		return lipgloss.JoinVertical(lipgloss.Left, header, main, footer)
 	}
 
+	settings := []string{
+		m.renderToggle("Use CPU", "Software Decoding", m.cfg.Player.UseCPU, m.cursor == SettingUseCPU, width),
+		m.renderChoice("Hardware Decoding", m.cfg.Player.HWDec, m.cursor == SettingHWDec, width),
+		m.renderChoice("Video Output", m.cfg.Player.VO, m.cursor == SettingVO, width),
+		m.renderChoice("HDR Tone Mapping", m.cfg.Player.ToneMapping, m.cursor == SettingToneMapping, width),
+		m.renderToggle("Subtitles", "Enabled", m.cfg.Player.SubtitlesEnabled, m.cursor == SettingSubtitles, width),
+		m.renderChoice("Subtitles Language", defaultAuto(m.cfg.Player.SubtitlesLang), m.cursor == SettingSubLang, width),
+		m.renderChoice("Audio Language", defaultAuto(m.cfg.Player.AudioLang), m.cursor == SettingAudioLang, width),
+		m.renderToggle("UI Icons", "Use icons in menus", m.cfg.UI.UseIcons, m.cursor == SettingIcons, width),
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, settings...)
+
 	main := bodyContainer.Render(lipgloss.JoinVertical(lipgloss.Left, content, "", m.renderTip(width-2)))
 	return lipgloss.JoinVertical(lipgloss.Left, header, main, footer)
 }
 
 func (m Model) renderTipPanel(width int, height int) string {
 	tip := m.renderTip(width - 3)
-	return lipgloss.NewStyle().
+	return shared.StyleRightPanel.Copy().
 		Width(width).
 		Height(height).
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(lipgloss.Color("#333333")).
-		PaddingLeft(2).
+		Padding(0, 2).
 		Render(tip)
 }
 
@@ -273,15 +264,14 @@ func (m Model) renderTip(width int) string {
 }
 
 func (m Model) renderToggle(label string, hint string, value bool, active bool, width int) string {
-	prefix := "  "
+	indicator := "  "
 	style := shared.StyleItemNormal
 	valStyle := shared.StyleHighlight
 
 	if active {
-		style = shared.StyleItemActive
-		prefix = "> "
-		// High contrast for active selection: black text on orange background
-		valStyle = lipgloss.NewStyle().Foreground(shared.ColorBlack).Bold(true)
+		indicator = shared.StyleHighlight.Render("▍") + " "
+		style = shared.StyleItemNormal.Copy().Foreground(shared.ColorPlexOrange).Bold(true)
+		valStyle = shared.StyleHighlight.Copy().Bold(true)
 	}
 
 	valStr := "OFF"
@@ -289,34 +279,43 @@ func (m Model) renderToggle(label string, hint string, value bool, active bool, 
 		valStr = "ON"
 	}
 
-	labelWidth := 28
+	valWidth := lipgloss.Width(valStr)
+	labelWidth := width - valWidth - 6
+	if labelWidth < 12 {
+		labelWidth = 12
+	}
 	labelText := label
 	if hint != "" {
 		labelText = fmt.Sprintf("%s (%s)", label, hint)
 	}
 
-	line := fmt.Sprintf("%s%-*s %s", prefix, labelWidth, shared.Truncate(labelText, labelWidth), valStyle.Render(valStr))
+	line := fmt.Sprintf("%s%-*s %s", indicator, labelWidth, shared.Truncate(labelText, labelWidth), valStyle.Render(valStr))
 	return style.Copy().Width(width).MaxHeight(1).Render(line)
 }
 
-func (m Model) renderChoice(label string, value string, active bool) string {
-	prefix := "  "
+func (m Model) renderChoice(label string, value string, active bool, width int) string {
+	indicator := "  "
 	style := shared.StyleItemNormal
 	valStyle := shared.StyleHighlight
 
 	if active {
-		style = shared.StyleItemActive
-		prefix = "> "
-		// High contrast for active selection
-		valStyle = lipgloss.NewStyle().Foreground(shared.ColorBlack).Bold(true)
+		indicator = shared.StyleHighlight.Render("▍") + " "
+		style = shared.StyleItemNormal.Copy().Foreground(shared.ColorPlexOrange).Bold(true)
+		valStyle = shared.StyleHighlight.Copy().Bold(true)
 	}
 
 	if value == "" {
 		value = "auto"
 	}
 
-	line := fmt.Sprintf("%s%-28s %s", prefix, shared.Truncate(label, 28), valStyle.Render(value))
-	return style.Copy().MaxHeight(1).Render(line)
+	valWidth := lipgloss.Width(value)
+	labelWidth := width - valWidth - 6
+	if labelWidth < 12 {
+		labelWidth = 12
+	}
+
+	line := fmt.Sprintf("%s%-*s %s", indicator, labelWidth, shared.Truncate(label, labelWidth), valStyle.Render(value))
+	return style.Copy().Width(width).MaxHeight(1).Render(line)
 }
 
 func defaultAuto(value string) string {
