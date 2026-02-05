@@ -131,18 +131,24 @@ func (m Model) View() string {
 	height := shared.ClampMin(m.height, 10)
 
 	// 1. Render Header
-	header, headerHeight := shared.RenderHeaderLegacySafe("⚙️ Settings", width)
+	header, headerHeight := shared.RenderHeaderLegacySafe("📂 Plex CLI > Settings", width)
 
 	// 2. Render Footer
 	footerHelp := "[esc/q/backspace] Back • [↑/↓] Navigate • [←/→/enter] Change"
 	footer, footerHeight := shared.RenderFooterLegacySafe("", footerHelp, width)
 	bodyHeight := height - headerHeight - footerHeight
-	if bodyHeight < 3 {
-		bodyHeight = 3
+	minBodyHeight := 3
+	if bodyHeight < minBodyHeight {
+		bodyHeight = minBodyHeight
+	}
+	// Ensure bodyHeight doesn't exceed available space
+	maxBodyHeight := height - headerHeight - footerHeight
+	if maxBodyHeight > 0 && bodyHeight > maxBodyHeight {
+		bodyHeight = maxBodyHeight
 	}
 
 	// Ensure main body has a fixed height by using a container
-	bodyContainer := lipgloss.NewStyle().Height(bodyHeight)
+	bodyContainer := lipgloss.NewStyle().Height(bodyHeight).MaxHeight(bodyHeight)
 
 	if width > shared.SplitThreshold {
 		leftWidth, rightWidth := shared.SplitWidths(width, shared.SplitLeftRatio, shared.SplitMinLeft, shared.SplitMinRight)
@@ -187,6 +193,7 @@ func (m Model) renderTipPanel(width int, height int) string {
 	return shared.StyleRightPanel.Copy().
 		Width(width).
 		Height(height).
+		MaxHeight(height).
 		Padding(0, 2).
 		Render(tip)
 }
@@ -269,7 +276,7 @@ func (m Model) renderToggle(label string, hint string, value bool, active bool, 
 	valStyle := shared.StyleHighlight
 
 	if active {
-		indicator = shared.StyleHighlight.Render("▍") + " "
+		indicator = shared.SelectionIndicator()
 		style = shared.StyleItemNormal.Copy().Foreground(shared.ColorPlexOrange).Bold(true)
 		valStyle = shared.StyleHighlight.Copy().Bold(true)
 	}
@@ -299,7 +306,7 @@ func (m Model) renderChoice(label string, value string, active bool, width int) 
 	valStyle := shared.StyleHighlight
 
 	if active {
-		indicator = shared.StyleHighlight.Render("▍") + " "
+		indicator = shared.SelectionIndicator()
 		style = shared.StyleItemNormal.Copy().Foreground(shared.ColorPlexOrange).Bold(true)
 		valStyle = shared.StyleHighlight.Copy().Bold(true)
 	}

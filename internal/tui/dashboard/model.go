@@ -15,6 +15,7 @@ type Model struct {
 	height     int
 	onDeck     []plex.Video
 	loading    bool
+	errorMsg   string
 
 	// Navigation
 	// activeColumn: 0 = Sidebar, 1 = Content
@@ -158,14 +159,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 					}
 				}
 			}
+
+		case "q", "esc":
+			return m, func() tea.Msg { return shared.MsgBack{} }
 		}
 
 	case MsgOnDeckLoaded:
 		m.loading = false
 		if msg.Err != nil {
-			// handle error
+			m.errorMsg = fmt.Sprintf("Failed to load content: %v", msg.Err)
 		} else {
 			m.onDeck = msg.Items
+			m.errorMsg = "" // Clear any previous error
 		}
 	}
 	return m, nil
@@ -176,18 +181,35 @@ func (m *Model) View() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, "Loading...")
 	}
 
+	// Show error if present
+	if m.errorMsg != "" {
+		errorStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF0000")).
+			Bold(true).
+			Padding(1, 2)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			errorStyle.Render("⚠ "+m.errorMsg+"\n\nPress Q or Esc to quit"))
+	}
+
 	// --- 1. Layout dims ---
 	availableWidth := shared.ClampMin(m.width, 20)
+	availableHeight := shared.ClampMin(m.height, 10)
 	// --- 2. Render Header ---
-	header, headerHeight := shared.RenderHeaderLegacySafe("🏠 Dashboard", availableWidth)
+	header, headerHeight := shared.RenderHeaderLegacySafe("📂 Plex CLI", availableWidth)
 
 	// --- 3. Render Footer ---
-	help := "[←/→] Focus • [↑/↓] Navigate • [Enter] Open • [Q] Quit"
+	help := "[←/→] Focus • [↑/↓] Navigate • [Enter] Open • [Q/Esc] Quit"
 	footer, footerHeight := shared.RenderFooterLegacySafe("", help, availableWidth)
 
-	contentHeight := m.height - headerHeight - footerHeight
-	if contentHeight < 3 {
-		contentHeight = 3
+	contentHeight := availableHeight - headerHeight - footerHeight
+	minContentHeight := 3
+	if contentHeight < minContentHeight {
+		contentHeight = minContentHeight
+	}
+	// Ensure contentHeight doesn't exceed available space
+	maxContentHeight := availableHeight - headerHeight - footerHeight
+	if maxContentHeight > 0 && contentHeight > maxContentHeight {
+		contentHeight = maxContentHeight
 	}
 
 	// Layout components
@@ -214,7 +236,7 @@ func (m *Model) renderSidebar(height int) string {
 
 		// If sidebar is active, show highlight
 		if m.activeColumn == 0 && m.sidebarCursor == i {
-			indicator = shared.StyleHighlight.Render("▍") + " "
+			indicator = shared.SelectionIndicator()
 			style = shared.StyleItemNormal.Copy().Foreground(shared.ColorPlexOrange).Bold(true)
 		}
 
@@ -226,7 +248,7 @@ func (m *Model) renderSidebar(height int) string {
 
 	sidebarStyle := shared.StyleSidebar.Copy()
 	if height > 0 {
-		sidebarStyle = sidebarStyle.Height(height)
+		sidebarStyle = sidebarStyle.Height(height).MaxHeight(height)
 	}
 	return sidebarStyle.Render(list)
 }
@@ -292,7 +314,7 @@ func (m Model) renderHeroLine(item plex.Video, active bool, width int) string {
 	prefix := "  "
 	style := shared.StyleItemNormal
 	if active {
-		prefix = shared.StyleHighlight.Render("▍") + " "
+		prefix = shared.SelectionIndicator()
 		style = shared.StyleItemNormal.Copy().Foreground(shared.ColorPlexOrange).Bold(true)
 	}
 
@@ -333,7 +355,7 @@ func (m Model) renderList(items []plex.Video, width int) string {
 		prefix := "  "
 		style := shared.StyleItemNormal
 		if isActive {
-			prefix = shared.StyleHighlight.Render("▍") + " "
+			prefix = shared.SelectionIndicator()
 			style = shared.StyleItemNormal.Copy().Foreground(shared.ColorPlexOrange).Bold(true)
 		}
 
@@ -390,14 +412,14 @@ func (m Model) renderDetailsPanel(item plex.Video, width int, height int) string
 		"",
 		shared.StyleSecondary.Render(prog),
 		"",
-		lipgloss.NewStyle().Width(width-4).Foreground(lipgloss.Color("#cccccc")).Render(summary),
+		lipgloss.NewStyle().Width(width-4).Foreground(shared.ColorLightGrey).Render(summary),
 	)
 
 	panelStyle := shared.StyleRightPanel.Copy().
 		Width(width).
 		Padding(0, 2)
 	if height > 0 {
-		panelStyle = panelStyle.Height(height)
+		panelStyle = panelStyle.Height(height).MaxHeight(height)
 	}
 	return panelStyle.Render(content)
 }

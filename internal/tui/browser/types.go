@@ -69,6 +69,12 @@ type Model struct {
 	// Sorting
 	sortMethod SortMethod
 
+	// Navigation context
+	selectedShowTitle string // Title of the selected show (for breadcrumbs)
+
+	// Error handling
+	errorMsg string
+
 	// Cache
 	filteredList []interface{}
 	needsRefresh bool
@@ -105,6 +111,7 @@ func (m *Model) SetType(t string) tea.Cmd {
 	m.showSearch = false
 	m.textInput.Reset()
 	m.needsRefresh = true
+	m.filteredList = nil
 
 	// Two-stage loading for sections is usually fast, but let's stick to sections for now
 	return fetchSections(m.plexClient, t)

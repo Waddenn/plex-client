@@ -57,11 +57,13 @@ func Sync(p PlexProvider, d *sql.DB, force bool) error {
 					partKey = v.Media[0].Part[0].Key
 				}
 				genres := joinTags(v.Genre)
+				directors := joinTags(v.Director)
+				cast := joinRoles(v.Role)
 				updatedAt := time.Now().Unix()
 
-				_, err := tx.Exec(`INSERT OR REPLACE INTO films (id, title, year, part_key, duration, summary, rating, genres, originallyAvailableAt, content_rating, studio, added_at, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-					v.RatingKey, v.Title, v.Year, partKey, v.Duration, v.Summary, v.Rating, genres, v.OriginallyAvailableAt, v.ContentRating, v.Studio, v.AddedAt, updatedAt)
+				_, err := tx.Exec(`INSERT OR REPLACE INTO films (id, title, year, part_key, duration, summary, rating, genres, directors, cast, originallyAvailableAt, content_rating, studio, added_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					v.RatingKey, v.Title, v.Year, partKey, v.Duration, v.Summary, v.Rating, genres, directors, cast, v.OriginallyAvailableAt, v.ContentRating, v.Studio, v.AddedAt, updatedAt)
 				if err != nil {
 					log.Printf("Error inserting movie %s: %v", v.Title, err)
 				}
@@ -75,11 +77,13 @@ func Sync(p PlexProvider, d *sql.DB, force bool) error {
 			}
 			for _, show := range shows {
 				genres := joinTags(show.Genre)
+				directors := joinTags(show.Director)
+				cast := joinRoles(show.Role)
 				updatedAt := time.Now().Unix()
 
-				_, err := tx.Exec(`INSERT OR REPLACE INTO series (id, title, summary, rating, genres, content_rating, studio, added_at, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-					show.RatingKey, show.Title, show.Summary, show.Rating, genres, show.ContentRating, show.Studio, show.AddedAt, updatedAt)
+				_, err := tx.Exec(`INSERT OR REPLACE INTO series (id, title, summary, rating, genres, directors, cast, content_rating, studio, added_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					show.RatingKey, show.Title, show.Summary, show.Rating, genres, directors, cast, show.ContentRating, show.Studio, show.AddedAt, updatedAt)
 				if err != nil {
 					log.Printf("Error inserting show %s: %v", show.Title, err)
 					continue
@@ -153,6 +157,15 @@ func joinTags(tags []plex.Tag) string {
 	var s []string
 	for _, t := range tags {
 		s = append(s, t.Tag)
+	}
+	return strings.Join(s, ", ")
+}
+
+func joinRoles(roles []plex.Role) string {
+	var s []string
+	for _, r := range roles {
+		// Format: "ActorName:CharacterRole"
+		s = append(s, r.Tag+":"+r.Role)
 	}
 	return strings.Join(s, ", ")
 }

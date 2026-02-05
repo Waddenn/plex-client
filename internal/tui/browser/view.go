@@ -14,17 +14,25 @@ func (m *Model) View() string {
 	var breadcrumb string
 	switch m.mode {
 	case ModeSections:
-		breadcrumb = "📂 Library"
+		breadcrumb = "📂 Plex CLI > Library"
 	case ModeItems:
 		title := "Movies"
 		if m.targetType == "show" {
 			title = "Series"
 		}
-		breadcrumb = fmt.Sprintf("📂 Library > %s", title)
+		breadcrumb = fmt.Sprintf("📂 Plex CLI > %s", title)
 	case ModeSeasons:
-		breadcrumb = "📂 Library > Series > Seasons"
+		if m.selectedShowTitle != "" {
+			breadcrumb = fmt.Sprintf("📂 Plex CLI > Series > %s", m.selectedShowTitle)
+		} else {
+			breadcrumb = "📂 Plex CLI > Series > Seasons"
+		}
 	case ModeEpisodes:
-		breadcrumb = "📂 Library > Series > Seasons > Episodes"
+		if m.selectedShowTitle != "" {
+			breadcrumb = fmt.Sprintf("📂 Plex CLI > Series > %s > Episodes", m.selectedShowTitle)
+		} else {
+			breadcrumb = "📂 Plex CLI > Series > Episodes"
+		}
 	}
 
 	headerViewSource := ""
@@ -41,7 +49,7 @@ func (m *Model) View() string {
 	}
 
 	// Layout dims
-	availableWidth := shared.ClampMin(m.width, 40)
+	availableWidth := shared.ClampMin(m.width, 20)
 	availableHeight := shared.ClampMin(m.height, 10)
 
 	renderedHeader, headerHeight := shared.RenderHeaderLegacySafe(headerViewSource, availableWidth)
@@ -66,20 +74,32 @@ func (m *Model) View() string {
 	// Footer
 	totalElements := len(filteredList)
 	footerText := fmt.Sprintf("%d elements • Sorted by %s", totalElements, m.sortMethod.String())
-	helpKeys := "[/] Search • [S] Sort • [Enter] Select • [Q] Quit"
+	helpKeys := "[/] Search • [S] Sort • [Enter] Select • [Esc/Q] Back"
 	renderedFooter, footerHeight := shared.RenderFooterLegacySafe(footerText, helpKeys, availableWidth)
 
 	// Calculate heights
 	// footerHeight fixed to 1 via RenderFooterLegacySafe
 	listHeight := availableHeight - headerHeight - footerHeight
-	if listHeight < 0 {
-		listHeight = 0
+	minListHeight := 3
+	if listHeight < minListHeight {
+		listHeight = minListHeight
 	}
 
-	if m.loading && count == 0 {
+	if m.errorMsg != "" {
+		errorStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF0000")).
+			Bold(true).
+			Padding(1)
 		leftPane = lipgloss.NewStyle().
 			Width(listWidth).
 			Height(listHeight).
+			MaxHeight(listHeight).
+			Render(errorStyle.Render("⚠ " + m.errorMsg + "\n\nPress Esc/Q to go back"))
+	} else if m.loading && count == 0 {
+		leftPane = lipgloss.NewStyle().
+			Width(listWidth).
+			Height(listHeight).
+			MaxHeight(listHeight).
 			Render("\n\n  Loading...")
 	} else {
 		// Scrolling logic
@@ -141,7 +161,7 @@ func (m *Model) View() string {
 					Foreground(shared.ColorPlexOrange).
 					Bold(true).
 					Width(listWidth)
-				prefix = shared.StyleHighlight.Render("▍") + " "
+				prefix = shared.SelectionIndicator()
 			}
 
 			listContent += rowStyle.Render(fmt.Sprintf("%s%s%s", prefix, line, indicators)) + "\n"
@@ -156,6 +176,7 @@ func (m *Model) View() string {
 		leftPane = lipgloss.NewStyle().
 			Width(listWidth).
 			Height(listHeight).
+			MaxHeight(listHeight).
 			Render(listContent)
 
 		if showDetails {
@@ -177,6 +198,7 @@ func (m *Model) View() string {
 			rightPane = shared.StyleRightPanel.Copy().
 				Width(detailsWidth).
 				Height(listHeight).
+				MaxHeight(listHeight).
 				Render(lipgloss.Place(detailsWidth, listHeight, lipgloss.Left, lipgloss.Top, rightPaneContent))
 		}
 	}
@@ -274,11 +296,7 @@ func renderDetails(item interface{}, width int) string {
 				if i > 0 {
 					genreRow += "  "
 				}
-				genreRow += lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#000000")).
-					Background(shared.ColorLightGrey).
-					Padding(0, 1).
-					Render(g.Tag)
+				genreRow += shared.StyleBadge.Render(g.Tag)
 			}
 			info += genreRow + "\n"
 		}
@@ -311,17 +329,19 @@ func renderDetails(item interface{}, width int) string {
 			filled = barWidth
 		}
 
-		bar := strings.Repeat("━", filled) + strings.Repeat("─", barWidth-filled)
-		progressBar = lipgloss.NewStyle().Foreground(shared.ColorPlexOrange).Render(bar)
+		// Use █ for filled and ░ for empty parts
+		filledBar := strings.Repeat("█", filled)
+		emptyBar := strings.Repeat("░", barWidth-filled)
 
-		// Add timestamp info
-		currentM := (v.ViewOffset / 1000) / 60
-		totalM := (v.Duration / 1000) / 60
-		progressBar += fmt.Sprintf(" %s %d / %d min", shared.StyleMetadataKey.Render("⏱"), currentM, totalM)
+		bar := lipgloss.NewStyle().Foreground(shared.ColorPlexOrange).Render(filledBar) +
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).Render(emptyBar)
+
+		percentInt := int(percent * 100)
+		progressBar = fmt.Sprintf("%s %d%%", bar, percentInt)
 	}
 
 	styledSummary := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#cccccc")).
+		Foreground(shared.ColorLightGrey).
 		Width(width).
 		Render(summary)
 
