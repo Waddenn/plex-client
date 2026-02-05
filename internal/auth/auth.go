@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"runtime"
 	"time"
+
+	"github.com/Waddenn/plex-client/internal/appinfo"
 )
 
 const (
@@ -40,12 +41,13 @@ type PlexConnection struct {
 }
 
 type AuthClient struct {
-	ClientID string
-	Product  string
-	Version  string
-	Platform string
-	Device   string
-	Client   *http.Client
+	ClientID  string
+	Product   string
+	Version   string
+	Platform  string
+	Device    string
+	UserAgent string
+	Client    *http.Client
 }
 
 // ... existing NewAuthClient ...
@@ -83,14 +85,15 @@ func (a *AuthClient) GetResources(token string) ([]PlexResource, error) {
 	return resources, nil
 }
 
-func NewAuthClient(clientID, product, version string) *AuthClient {
+func NewAuthClient(clientID string, info appinfo.Info) *AuthClient {
 	return &AuthClient{
-		ClientID: clientID,
-		Product:  product,
-		Version:  version,
-		Platform: runtime.GOOS,
-		Device:   "Plex Client CLI",
-		Client:   &http.Client{Timeout: 10 * time.Second},
+		ClientID:  clientID,
+		Product:   info.Product,
+		Version:   info.Version,
+		Platform:  info.Platform,
+		Device:    info.Device,
+		UserAgent: info.UserAgent,
+		Client:    &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -106,7 +109,7 @@ func (a *AuthClient) GetPin() (*PlexPin, string, error) {
 	req.URL.RawQuery = q.Encode()
 
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "Plex Client CLI/0.1.0")
+	req.Header.Set("User-Agent", a.UserAgent)
 	req.Header.Set("X-Plex-Product", a.Product)
 	req.Header.Set("X-Plex-Client-Identifier", a.ClientID)
 	req.Header.Set("X-Plex-Version", a.Version)
@@ -155,7 +158,7 @@ func (a *AuthClient) CheckPin(pinID int) (*PlexPin, error) {
 	// Let's keep URL clean.
 
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "Plex Client CLI/0.1.0")
+	req.Header.Set("User-Agent", a.UserAgent)
 	req.Header.Set("X-Plex-Product", a.Product)
 	req.Header.Set("X-Plex-Client-Identifier", a.ClientID)
 	req.Header.Set("X-Plex-Version", a.Version)

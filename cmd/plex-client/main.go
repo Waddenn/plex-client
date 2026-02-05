@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/Waddenn/plex-client/internal/appinfo"
 	"github.com/Waddenn/plex-client/internal/cache"
 	"github.com/Waddenn/plex-client/internal/config"
 	"github.com/Waddenn/plex-client/internal/db"
@@ -56,7 +57,8 @@ func main() {
 	}
 	defer d.Close()
 
-	p := plex.New(cfg.Plex.BaseURL, cfg.Plex.Token, "plex-client-go")
+	info := appinfo.Default()
+	p := plex.New(cfg.Plex.BaseURL, cfg.Plex.Token, cfg.Plex.ClientIdentifier, info)
 
 	// Check if we have data
 	hasData := false
@@ -90,7 +92,7 @@ func main() {
 		}
 	}
 
-	m := tui.NewModel(d, cfg, p)
+	m := tui.NewModel(d, cfg, p, info)
 	if _, err := tea.NewProgram(&m, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Printf("Error running TUI: %v\n", err)
 		os.Exit(1)

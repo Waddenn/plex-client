@@ -19,6 +19,8 @@ type Model struct {
 	voOptions    []string
 	hwdecOptions []string
 	tmOptions    []string
+	subLangs     []string
+	audioLangs   []string
 }
 
 func NewModel(cfg *config.Config) Model {
@@ -27,6 +29,8 @@ func NewModel(cfg *config.Config) Model {
 		voOptions:    []string{"auto", "gpu", "gpu-next", "x11", "xv"},
 		hwdecOptions: []string{"auto", "auto-safe", "vaapi", "nvdec", "vdpau", "no"},
 		tmOptions:    []string{"auto", "st2094-10", "mobius", "spline", "bt.2446a", "clip"},
+		subLangs:     []string{"auto", "eng", "fra", "spa", "deu", "ita", "jpn"},
+		audioLangs:   []string{"auto", "eng", "fra", "spa", "deu", "ita", "jpn"},
 	}
 }
 
@@ -44,6 +48,8 @@ const (
 	SettingVO
 	SettingToneMapping
 	SettingSubtitles
+	SettingSubLang
+	SettingAudioLang
 	SettingIcons
 	settingCount
 )
@@ -98,6 +104,12 @@ func (m Model) handleInput(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.cfg.Player.SubtitlesEnabled = !m.cfg.Player.SubtitlesEnabled
 			save = true
 		}
+	case SettingSubLang:
+		m.cfg.Player.SubtitlesLang = rotateOption(defaultAuto(m.cfg.Player.SubtitlesLang), m.subLangs, key)
+		save = true
+	case SettingAudioLang:
+		m.cfg.Player.AudioLang = rotateOption(defaultAuto(m.cfg.Player.AudioLang), m.audioLangs, key)
+		save = true
 	case SettingIcons:
 		if key == "enter" || key == " " || key == "left" || key == "right" || key == "h" || key == "l" {
 			m.cfg.UI.UseIcons = !m.cfg.UI.UseIcons
@@ -144,6 +156,8 @@ func (m Model) View() string {
 		m.renderChoice("Video Output (VO)", m.cfg.Player.VO, m.cursor == SettingVO),
 		m.renderChoice("HDR Tone Mapping", m.cfg.Player.ToneMapping, m.cursor == SettingToneMapping),
 		m.renderToggle("Subtitles Enabled", m.cfg.Player.SubtitlesEnabled, m.cursor == SettingSubtitles),
+		m.renderChoice("Subtitles Language", defaultAuto(m.cfg.Player.SubtitlesLang), m.cursor == SettingSubLang),
+		m.renderChoice("Audio Language", defaultAuto(m.cfg.Player.AudioLang), m.cursor == SettingAudioLang),
 		m.renderToggle("Use Icons in UI", m.cfg.UI.UseIcons, m.cursor == SettingIcons),
 	}
 
@@ -215,6 +229,10 @@ func (m Model) renderTip() string {
 		}
 	case SettingSubtitles:
 		tip = "Automatically enable and display subtitles if available in the file."
+	case SettingSubLang:
+		tip = "Preferred subtitle language. Use auto to let MPV decide."
+	case SettingAudioLang:
+		tip = "Preferred audio language. Use auto to let MPV decide."
 	case SettingIcons:
 		tip = "Show icons (🎬, 📺) next to library names in the sidebar."
 	}
@@ -260,4 +278,11 @@ func (m Model) renderChoice(label string, value string, active bool) string {
 	}
 
 	return style.Render(fmt.Sprintf("%s%-30s %s", prefix, label, shared.StyleHighlight.Render(value)))
+}
+
+func defaultAuto(value string) string {
+	if value == "" {
+		return "auto"
+	}
+	return value
 }

@@ -21,65 +21,18 @@ func Play(title, url string, ratingKey string, startTimeMs int64, cfg *config.Co
 	// Create a temporary IPC socket path
 	ipcSocket := filepath.Join(os.TempDir(), fmt.Sprintf("plex-mpv-%d.sock", time.Now().UnixNano()))
 
-	args := []string{
-		"--force-window=yes",
-		"--fullscreen",
-		"--msg-level=all=v",        // Verbose logging for debugging
-		"--target-colorspace-hint", // Essential for fixing faded colors
-		"--panscan=1.0",            // Scaling: Fill screen by cropping black bars
-		fmt.Sprintf("--title=%s", title),
-		fmt.Sprintf("--input-ipc-server=%s", ipcSocket),
-	}
-
 	// Detect Wayland for better VO defaults
 	isWayland := os.Getenv("WAYLAND_DISPLAY") != ""
 
+	args := baseArgs(title, ipcSocket)
+	args = append(args, buildSubtitleArgs(cfg)...)
+	args = append(args, buildLanguageArgs(cfg)...)
+
 	// Stability & CPU vs GPU logic
 	if cfg.Player.UseCPU {
-		args = append(args,
-			"--profile=fast",               // Global performance profile
-			"--vo=xv,x11",                  // Stable legacy VOs
-			"--hwdec=no",                   // Force software
-			"--vd-lavc-threads=0",          // Maximize CPU usage
-			"--vd-lavc-fast=yes",           // Favor speed over quality
-			"--vd-lavc-skiploopfilter=all", // Big CPU saving
-			"--sws-scaler=fast-bilinear",   // Lightweight scaling
-			"--video-sync=audio",           // Prevent CPU spikes from sync
-		)
+		args = append(args, buildCPUArgs()...)
 	} else {
-		// Optimized GPU Path for AMD/Wayland
-		vo := "gpu-next" // Modern default
-		if cfg.Player.VO != "" {
-			vo = cfg.Player.VO
-		} else if isWayland {
-			vo = "gpu-next,wayland"
-		}
-
-		hwdec := "auto-safe"
-		if cfg.Player.HWDec != "" {
-			hwdec = cfg.Player.HWDec
-		} else if isWayland {
-			hwdec = "vaapi" // Best for AMD on Wayland
-		}
-
-		// HDR to SDR Tonemapping (Fixes pale colors)
-		tm := "st2094-10" // High quality default for GPU-Next
-		if cfg.Player.ToneMapping != "" {
-			tm = cfg.Player.ToneMapping
-		}
-
-		args = append(args,
-			fmt.Sprintf("--vo=%s", vo),
-			fmt.Sprintf("--hwdec=%s", hwdec),
-			"--gpu-context=wayland", // Ensure Wayland context
-			// HDR Optimizations
-			fmt.Sprintf("--tone-mapping=%s", tm),
-			"--hdr-compute-peak=yes",
-			"--gamut-mapping-mode=clip",
-		)
-		if tm != "auto" {
-			args = append(args, "--target-trc=gamma2.2") // Fixes colors for SDR monitors
-		}
+		args = append(args, buildGPUArgs(cfg, isWayland)...)
 	}
 
 	// Add start time if > 0
@@ -90,36 +43,9 @@ func Play(title, url string, ratingKey string, startTimeMs int64, cfg *config.Co
 	}
 
 	// Setup ModernX environment if available
-	if modernXDir := os.Getenv("MPV_MODERNX_DIR"); modernXDir != "" {
-		tmpDir, err := os.MkdirTemp("", "plex-client-mpv-*")
-		if err == nil {
-			defer os.RemoveAll(tmpDir)
-
-			// Setup directories
-			os.Mkdir(filepath.Join(tmpDir, "scripts"), 0755)
-			os.Mkdir(filepath.Join(tmpDir, "fonts"), 0755)
-
-			// Copy/Symlink ModernX files
-			os.Symlink(filepath.Join(modernXDir, "scripts", "modernx.lua"), filepath.Join(tmpDir, "scripts", "modernx.lua"))
-			os.Symlink(filepath.Join(modernXDir, "fonts", "Material-Design-Iconic-Font.ttf"), filepath.Join(tmpDir, "fonts", "Material-Design-Iconic-Font.ttf"))
-
-			// Write mpv.conf
-			// We try to include the user's original mpv.conf to respect their settings
-			confContent := ""
-			if userConfigDir, err := os.UserConfigDir(); err == nil {
-				userMpvConf := filepath.Join(userConfigDir, "mpv", "mpv.conf")
-				if _, err := os.Stat(userMpvConf); err == nil {
-					confContent += fmt.Sprintf("include=\"%s\"\n", userMpvConf)
-				}
-			}
-			// Enforce settings required for ModernX
-			confContent += "osc=no\nborder=no\n"
-
-			confPath := filepath.Join(tmpDir, "mpv.conf")
-			os.WriteFile(confPath, []byte(confContent), 0644)
-
-			args = append(args, fmt.Sprintf("--config-dir=%s", tmpDir))
-		}
+	if cfgPath, ok := setupModernX(); ok {
+		defer os.RemoveAll(cfgPath)
+		args = append(args, fmt.Sprintf("--config-dir=%s", cfgPath))
 	}
 
 	// Add args from config
@@ -133,31 +59,13 @@ func Play(title, url string, ratingKey string, startTimeMs int64, cfg *config.Co
 	args = append(args, extraArgs...)
 	args = append(args, fullURL)
 
-	// Log to file for persistent debugging
-	logPath := filepath.Join(os.TempDir(), "plex-mpv.log")
-	logFile, _ := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if logFile != nil {
-		fmt.Fprintf(logFile, "\n--- Starting MPV: %s ---\n", time.Now().Format(time.RFC3339))
-		fmt.Fprintf(logFile, "Command: mpv %s\n", strings.Join(args, " "))
-	}
-
 	cmd := exec.Command("mpv", args...)
-	if logFile != nil {
-		cmd.Stdout = logFile
-		cmd.Stderr = logFile
-		defer logFile.Close()
-	}
 
 	// Start monitoring routine
 	doneCh := make(chan bool)
 	go monitorProgress(ipcSocket, ratingKey, pClient, doneCh)
 
 	err := cmd.Run()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "DEBUG: MPV process exited with error: %v\n", err)
-	} else {
-		fmt.Fprintf(os.Stderr, "DEBUG: MPV process exited successfully\n")
-	}
 
 	// Wait for monitor to decide if we finished
 	completed := <-doneCh
@@ -166,6 +74,139 @@ func Play(title, url string, ratingKey string, startTimeMs int64, cfg *config.Co
 		return false, fmt.Errorf("mpv failed: %w", err)
 	}
 	return completed, nil
+}
+
+func baseArgs(title, ipcSocket string) []string {
+	return []string{
+		"--force-window=yes",
+		"--fullscreen",
+		"--target-colorspace-hint", // Essential for fixing faded colors
+		"--panscan=1.0",            // Scaling: Fill screen by cropping black bars
+		fmt.Sprintf("--title=%s", title),
+		fmt.Sprintf("--input-ipc-server=%s", ipcSocket),
+	}
+}
+
+func buildCPUArgs() []string {
+	return []string{
+		"--profile=fast",               // Global performance profile
+		"--vo=xv,x11",                  // Stable legacy VOs
+		"--hwdec=no",                   // Force software
+		"--vd-lavc-threads=0",          // Maximize CPU usage
+		"--vd-lavc-fast=yes",           // Favor speed over quality
+		"--vd-lavc-skiploopfilter=all", // Big CPU saving
+		"--sws-scaler=fast-bilinear",   // Lightweight scaling
+		"--video-sync=audio",           // Prevent CPU spikes from sync
+	}
+}
+
+func buildGPUArgs(cfg *config.Config, isWayland bool) []string {
+	args := []string{}
+
+	vo := "gpu-next" // Modern default
+	if cfg.Player.VO != "" {
+		vo = cfg.Player.VO
+	} else if isWayland {
+		vo = "gpu-next,wayland"
+	}
+	args = append(args, fmt.Sprintf("--vo=%s", vo))
+
+	hwdec := "auto-safe"
+	if cfg.Player.HWDec != "" {
+		hwdec = cfg.Player.HWDec
+	} else if isWayland {
+		hwdec = "vaapi" // Best for AMD on Wayland
+	}
+	args = append(args, fmt.Sprintf("--hwdec=%s", hwdec))
+
+	if isWayland {
+		args = append(args, "--gpu-context=wayland")
+	}
+
+	tm := "st2094-10" // High quality default for GPU-Next
+	if cfg.Player.ToneMapping != "" {
+		tm = cfg.Player.ToneMapping
+	}
+	args = append(args,
+		fmt.Sprintf("--tone-mapping=%s", tm),
+		"--hdr-compute-peak=yes",
+		"--gamut-mapping-mode=clip",
+	)
+	if tm != "auto" {
+		args = append(args, "--target-trc=gamma2.2") // Fixes colors for SDR monitors
+	}
+
+	return args
+}
+
+func buildSubtitleArgs(cfg *config.Config) []string {
+	if cfg.Player.SubtitlesEnabled {
+		return []string{"--sid=auto"}
+	}
+	return []string{"--sid=no"}
+}
+
+func buildLanguageArgs(cfg *config.Config) []string {
+	args := []string{}
+	if cfg.Player.SubtitlesLang != "" {
+		args = append(args, fmt.Sprintf("--slang=%s", cfg.Player.SubtitlesLang))
+	}
+	if cfg.Player.AudioLang != "" {
+		args = append(args, fmt.Sprintf("--alang=%s", cfg.Player.AudioLang))
+	}
+	return args
+}
+
+func setupModernX() (string, bool) {
+	modernXDir := os.Getenv("MPV_MODERNX_DIR")
+	if modernXDir == "" {
+		return "", false
+	}
+
+	tmpDir, err := os.MkdirTemp("", "plex-client-mpv-*")
+	if err != nil {
+		return "", false
+	}
+
+	// Setup directories
+	if err := os.Mkdir(filepath.Join(tmpDir, "scripts"), 0755); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", false
+	}
+	if err := os.Mkdir(filepath.Join(tmpDir, "fonts"), 0755); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", false
+	}
+
+	// Copy/Symlink ModernX files
+	if err := os.Symlink(filepath.Join(modernXDir, "scripts", "modernx.lua"), filepath.Join(tmpDir, "scripts", "modernx.lua")); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", false
+	}
+	if err := os.Symlink(filepath.Join(modernXDir, "fonts", "Material-Design-Iconic-Font.ttf"), filepath.Join(tmpDir, "fonts", "Material-Design-Iconic-Font.ttf")); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", false
+	}
+
+	// Write mpv.conf
+	// We try to include the user's original mpv.conf to respect their settings
+	confContent := ""
+	if userConfigDir, err := os.UserConfigDir(); err == nil {
+		userMpvConf := filepath.Join(userConfigDir, "mpv", "mpv.conf")
+		if _, err := os.Stat(userMpvConf); err == nil {
+			confContent += fmt.Sprintf("include=\"%s\"\n", userMpvConf)
+		}
+	}
+	// Enforce settings required for ModernX
+	confContent += "osc=no\nborder=no\n"
+
+	confPath := filepath.Join(tmpDir, "mpv.conf")
+	if err := os.WriteFile(confPath, []byte(confContent), 0644); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", false
+	}
+
+	return tmpDir, true
 }
 
 func monitorProgress(socketPath string, ratingKey string, p *plex.Client, doneCh chan<- bool) {

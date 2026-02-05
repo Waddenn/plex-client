@@ -58,17 +58,17 @@ func initTestDB(t *testing.T) *sql.DB {
             added_at INTEGER,
             updated_at INTEGER
         );`,
-		`CREATE TABLE IF NOT EXISTS saisons (
+		`CREATE TABLE IF NOT EXISTS seasons (
             id INTEGER PRIMARY KEY,
-            serie_id INTEGER,
-            saison_index INTEGER,
+            series_id INTEGER,
+            season_index INTEGER,
             summary TEXT,
             updated_at INTEGER,
-            FOREIGN KEY(serie_id) REFERENCES series(id) ON DELETE CASCADE
+            FOREIGN KEY(series_id) REFERENCES series(id) ON DELETE CASCADE
         );`,
 		`CREATE TABLE IF NOT EXISTS episodes (
             id INTEGER PRIMARY KEY,
-            saison_id INTEGER,
+            season_id INTEGER,
             episode_index INTEGER,
             title TEXT,
             part_key TEXT,
@@ -76,7 +76,7 @@ func initTestDB(t *testing.T) *sql.DB {
             summary TEXT,
             rating REAL,
             updated_at INTEGER,
-            FOREIGN KEY(saison_id) REFERENCES saisons(id) ON DELETE CASCADE
+            FOREIGN KEY(season_id) REFERENCES seasons(id) ON DELETE CASCADE
         );`,
 		`CREATE TABLE IF NOT EXISTS films (
             id INTEGER PRIMARY KEY,
@@ -152,7 +152,7 @@ func TestSyncShows(t *testing.T) {
 
 	// Verify Season
 	var summary string
-	err = db.QueryRow("SELECT summary FROM saisons WHERE id=101").Scan(&summary)
+	err = db.QueryRow("SELECT summary FROM seasons WHERE id=101").Scan(&summary)
 	if err != nil {
 		t.Fatalf("Season insert failed: %v", err)
 	}

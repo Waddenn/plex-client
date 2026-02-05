@@ -6,7 +6,10 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
+
+	"github.com/Waddenn/plex-client/internal/appinfo"
 )
 
 type Client struct {
@@ -17,16 +20,16 @@ type Client struct {
 	Client            *http.Client
 }
 
-func New(baseURL, token, clientIdentifier string) *Client {
+func New(baseURL, token, clientIdentifier string, info appinfo.Info) *Client {
 	return &Client{
 		BaseURL: baseURL,
 		Token:   token,
 		Headers: map[string]string{
 			"X-Plex-Client-Identifier": clientIdentifier,
-			"X-Plex-Product":           "Plex Client Go",
-			"X-Plex-Version":           "0.1.0",
-			"X-Plex-Device":            "Linux",
-			"X-Plex-Platform":          "Linux",
+			"X-Plex-Product":           info.Product,
+			"X-Plex-Version":           info.Version,
+			"X-Plex-Device":            info.Device,
+			"X-Plex-Platform":          info.Platform,
 			"Accept":                   "application/xml",
 		},
 		Client: &http.Client{Timeout: 10 * time.Second},
@@ -120,9 +123,21 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 
 	maxRetries := 3
 	var lastErr error
+	canRetryBody := req.Body == nil || req.GetBody != nil
 
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
+			if !canRetryBody {
+				return nil, fmt.Errorf("request to %s cannot be retried (non-rewindable body)", req.URL.String())
+			}
+			if req.GetBody != nil {
+				body, err := req.GetBody()
+				if err != nil {
+					return nil, fmt.Errorf("failed to reset request body for %s: %w", req.URL.String(), err)
+				}
+				req.Body = body
+			}
+
 			// Exponential backoff: 0.5s, 1s, 2s
 			backoff := time.Duration(math.Pow(2, float64(i-1))) * 500 * time.Millisecond
 			time.Sleep(backoff)
@@ -135,8 +150,13 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		}
 
 		// Check for server errors (5xx)
-		if resp.StatusCode >= 500 {
+		if shouldRetry(resp.StatusCode) {
 			resp.Body.Close()
+			if resp.StatusCode == http.StatusTooManyRequests {
+				if retryAfter, ok := parseRetryAfter(resp.Header.Get("Retry-After")); ok {
+					time.Sleep(retryAfter)
+				}
+			}
 			lastErr = fmt.Errorf("server error: %d", resp.StatusCode)
 			continue
 		}
@@ -144,7 +164,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		return resp, nil
 	}
 
-	return nil, fmt.Errorf("request failed after %d retries: %v", maxRetries, lastErr)
+	return nil, fmt.Errorf("request to %s failed after %d retries: %v", req.URL.String(), maxRetries, lastErr)
 }
 
 func (c *Client) GetSections() ([]Directory, error) {
@@ -218,7 +238,7 @@ func (c *Client) getXML(url string, target interface{}) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("plex api error: %d", resp.StatusCode)
+		return fmt.Errorf("plex api error: %d for %s", resp.StatusCode, url)
 	}
 
 	return xml.NewDecoder(resp.Body).Decode(target)
@@ -242,7 +262,7 @@ func (c *Client) ReportProgress(key string, timeMs int64, durationMs int64, stat
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("plex timeline error: %d", resp.StatusCode)
+		return fmt.Errorf("plex timeline error: %d for %s", resp.StatusCode, url)
 	}
 	return nil
 }
@@ -264,7 +284,7 @@ func (c *Client) Scrobble(key string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("plex scrobble error: %d", resp.StatusCode)
+		return fmt.Errorf("plex scrobble error: %d for %s", resp.StatusCode, url)
 	}
 	return nil
 }
@@ -335,7 +355,7 @@ func (c *Client) CreatePlayQueue(item Video) (*PlayQueueContainer, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("plex playqueue error: %d", resp.StatusCode)
+		return nil, fmt.Errorf("plex playqueue error: %d for %s", resp.StatusCode, endpoint)
 	}
 
 	var mc PlayQueueContainer
@@ -344,4 +364,24 @@ func (c *Client) CreatePlayQueue(item Video) (*PlayQueueContainer, error) {
 	}
 
 	return &mc, nil
+}
+
+func shouldRetry(status int) bool {
+	if status == http.StatusTooManyRequests {
+		return true
+	}
+	if status >= 500 && status <= 599 {
+		return true
+	}
+	return false
+}
+
+func parseRetryAfter(value string) (time.Duration, bool) {
+	if value == "" {
+		return 0, false
+	}
+	if secs, err := strconv.Atoi(value); err == nil && secs > 0 {
+		return time.Duration(secs) * time.Second, true
+	}
+	return 0, false
 }

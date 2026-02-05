@@ -117,7 +117,7 @@ func syncSeasons(p PlexProvider, tx *sql.Tx, showID string) error {
 		sIndex, _ := strconv.Atoi(season.Index)
 		updatedAt := time.Now().Unix()
 
-		_, err := tx.Exec(`INSERT OR REPLACE INTO saisons (id, serie_id, saison_index, summary, updated_at) 
+		_, err := tx.Exec(`INSERT OR REPLACE INTO seasons (id, series_id, season_index, summary, updated_at) 
 			VALUES (?, ?, ?, ?, ?)`,
 			season.RatingKey, showID, sIndex, season.Summary, updatedAt)
 		if err != nil {
@@ -138,7 +138,7 @@ func syncSeasons(p PlexProvider, tx *sql.Tx, showID string) error {
 			}
 			eIndex := e.Index
 
-			_, err := tx.Exec(`INSERT OR REPLACE INTO episodes (id, saison_id, episode_index, title, part_key, duration, summary, rating, updated_at) 
+			_, err := tx.Exec(`INSERT OR REPLACE INTO episodes (id, season_id, episode_index, title, part_key, duration, summary, rating, updated_at) 
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				e.RatingKey, season.RatingKey, eIndex, e.Title, partKey, e.Duration, e.Summary, e.Rating, updatedAt)
 			if err != nil {

@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Waddenn/plex-client/internal/appinfo"
 	"github.com/Waddenn/plex-client/internal/config"
 	"github.com/Waddenn/plex-client/internal/player"
 	"github.com/Waddenn/plex-client/internal/plex"
+	"github.com/Waddenn/plex-client/internal/store"
 	"github.com/Waddenn/plex-client/internal/tui/browser"
 	"github.com/Waddenn/plex-client/internal/tui/dashboard"
 	"github.com/Waddenn/plex-client/internal/tui/login"
@@ -21,6 +23,7 @@ type MainModel struct {
 	cfg        *config.Config
 	db         *sql.DB
 	plexClient *plex.Client
+	appInfo    appinfo.Info
 
 	width  int
 	height int
@@ -39,8 +42,9 @@ type MainModel struct {
 	queueIdx  int
 }
 
-func NewModel(db *sql.DB, cfg *config.Config, p *plex.Client) MainModel {
-	bm := browser.NewModel(p, db)
+func NewModel(db *sql.DB, cfg *config.Config, p *plex.Client, info appinfo.Info) MainModel {
+	st := store.New(db)
+	bm := browser.NewModel(p, st)
 
 	initialView := shared.ViewDashboard
 	if cfg.Plex.Token == "" {
@@ -51,8 +55,9 @@ func NewModel(db *sql.DB, cfg *config.Config, p *plex.Client) MainModel {
 		cfg:         cfg,
 		db:          db,
 		plexClient:  p,
+		appInfo:     info,
 		currentView: initialView,
-		login:       login.NewModel(cfg),
+		login:       login.NewModel(cfg, info),
 		dashboard:   dashboard.NewModel(p),
 		browser:     &bm,
 		settings:    settings.NewModel(cfg),
@@ -211,10 +216,11 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case login.MsgLoginSuccess:
 		m.cfg = msg.Config
 		// Re-init plex client with new token/url
-		m.plexClient = plex.New(m.cfg.Plex.BaseURL, m.cfg.Plex.Token, "plex-client-go-tui")
+		m.plexClient = plex.New(m.cfg.Plex.BaseURL, m.cfg.Plex.Token, m.cfg.Plex.ClientIdentifier, m.appInfo)
 
 		// Update submodels
-		bm := browser.NewModel(m.plexClient, m.db)
+		st := store.New(m.db)
+		bm := browser.NewModel(m.plexClient, st)
 		m.browser = &bm
 		m.dashboard = dashboard.NewModel(m.plexClient)
 
