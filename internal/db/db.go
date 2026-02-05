@@ -58,6 +58,8 @@ func initSchema(db *sql.DB) error {
             summary TEXT,
             rating REAL,
             genres TEXT,
+            directors TEXT,
+            cast TEXT,
             originallyAvailableAt TEXT,
             content_rating TEXT,
             studio TEXT,
@@ -73,6 +75,8 @@ func initSchema(db *sql.DB) error {
             summary TEXT,
             rating REAL,
             genres TEXT,
+            directors TEXT,
+            cast TEXT,
             content_rating TEXT,
             studio TEXT,
             added_at INTEGER,
@@ -187,6 +191,60 @@ func migrateSchema(db *sql.DB) error {
 				return err
 			}
 			if _, err := tx.Exec(`ALTER TABLE episodes_new RENAME TO episodes;`); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Add directors and cast columns to films table
+	hasFilms, err := tableExists(tx, "films")
+	if err != nil {
+		return err
+	}
+	if hasFilms {
+		hasDirectors, err := columnExists(tx, "films", "directors")
+		if err != nil {
+			return err
+		}
+		if !hasDirectors {
+			if _, err := tx.Exec(`ALTER TABLE films ADD COLUMN directors TEXT;`); err != nil {
+				return err
+			}
+		}
+
+		hasCast, err := columnExists(tx, "films", "cast")
+		if err != nil {
+			return err
+		}
+		if !hasCast {
+			if _, err := tx.Exec(`ALTER TABLE films ADD COLUMN cast TEXT;`); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Add directors and cast columns to series table
+	hasSeries, err := tableExists(tx, "series")
+	if err != nil {
+		return err
+	}
+	if hasSeries {
+		hasDirectors, err := columnExists(tx, "series", "directors")
+		if err != nil {
+			return err
+		}
+		if !hasDirectors {
+			if _, err := tx.Exec(`ALTER TABLE series ADD COLUMN directors TEXT;`); err != nil {
+				return err
+			}
+		}
+
+		hasCast, err := columnExists(tx, "series", "cast")
+		if err != nil {
+			return err
+		}
+		if !hasCast {
+			if _, err := tx.Exec(`ALTER TABLE series ADD COLUMN cast TEXT;`); err != nil {
 				return err
 			}
 		}

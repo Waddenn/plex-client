@@ -69,12 +69,17 @@ func RenderHeader(content string, width int) string {
 // Returns the rendered header and the fixed height used for layout.
 func RenderHeaderLegacySafe(content string, width int) (string, int) {
 	safeWidth := ClampMin(width, 20)
-	header := StyleHeader.Copy().Width(safeWidth).Render(content)
-	header = lipgloss.NewStyle().
+
+	// Render with StyleHeader which has bottom border + padding
+	styledContent := StyleHeader.Copy().Width(safeWidth).Render(content)
+
+	// Wrap in a fixed-height container (3 lines total)
+	header := lipgloss.NewStyle().
 		Width(safeWidth).
 		Height(3).
 		MaxHeight(3).
-		Render(header)
+		Render(styledContent)
+
 	return header, 3
 }
 

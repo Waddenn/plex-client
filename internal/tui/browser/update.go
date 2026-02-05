@@ -1,6 +1,8 @@
 package browser
 
 import (
+	"fmt"
+
 	"github.com/Waddenn/plex-client/internal/plex"
 	"github.com/Waddenn/plex-client/internal/tui/shared"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -71,6 +73,11 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 				return nil
 			}
 
+		case "q":
+			if !m.showSearch {
+				return func() tea.Msg { return shared.MsgBack{} }
+			}
+
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
@@ -98,18 +105,22 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 				m.showSearch = false
 				m.textInput.Reset()
 				m.needsRefresh = true
+				m.filteredList = nil
 				return nil
 			} else if m.mode == ModeSeasons {
 				m.mode = ModeItems
+				m.selectedShowTitle = "" // Clear show title when going back
 				m.cursor = 0
 				m.showSearch = false
 				m.textInput.Reset()
 				m.needsRefresh = true
+				m.filteredList = nil
 				return nil
 			} else if m.mode == ModeEpisodes {
 				// For mini-series that skipped the season selection, go back to items
 				if len(m.seasons) == 0 {
 					m.mode = ModeItems
+					m.selectedShowTitle = "" // Clear show title when going back
 				} else {
 					m.mode = ModeSeasons
 				}
@@ -117,6 +128,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 				m.showSearch = false
 				m.textInput.Reset()
 				m.needsRefresh = true
+				m.filteredList = nil
 				return nil
 			}
 			// If at root, let MainModel handle it (MsgBack)
@@ -136,6 +148,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 						m.showSearch = false // Reset search when drilling down
 						m.textInput.Reset()
 						m.needsRefresh = true
+						m.filteredList = nil
 
 						// Instant load from DB
 						var cmds []tea.Cmd
@@ -152,17 +165,20 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 						m.showSearch = false
 						m.textInput.Reset()
 						m.needsRefresh = true
+						m.filteredList = nil
 						return fetchChildren(m.plexClient, item.RatingKey)
 					}
 				case plex.Video: // Item or Episode
 					if m.mode == ModeItems {
 						if item.Type == "show" {
+							m.selectedShowTitle = item.Title // Store show title for breadcrumbs
 							m.mode = ModeSeasons
 							m.loading = true
 							m.cursor = 0
 							m.showSearch = false
 							m.textInput.Reset()
 							m.needsRefresh = true
+							m.filteredList = nil
 							return fetchChildren(m.plexClient, item.RatingKey)
 						}
 						return func() tea.Msg { return shared.MsgPlayVideo{Video: item} }
@@ -175,14 +191,19 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 
 	case MsgSectionsLoaded:
 		m.loading = false
-		if msg.Err == nil {
+		m.filteredList = nil // Force refresh
+		if msg.Err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to load sections: %v", msg.Err)
+		} else {
 			m.sections = msg.Sections
+			m.errorMsg = "" // Clear any previous error
 			// UX Improvement: If only one section, auto-select it
 			if len(m.sections) == 1 {
 				section := m.sections[0]
 				m.mode = ModeItems
 				m.loading = true
 				m.needsRefresh = true
+				m.filteredList = nil
 
 				var cmds []tea.Cmd
 				if dbItems, err := fetchLibraryItemsFromStore(m.store, m.targetType); err == nil && len(dbItems) > 0 {
@@ -196,7 +217,11 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	case MsgItemsLoaded:
 		m.loading = false
 		m.needsRefresh = true
-		if msg.Err == nil {
+		m.filteredList = nil // Force refresh to show updated metadata
+		if msg.Err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to load items: %v", msg.Err)
+		} else {
+			m.errorMsg = "" // Clear any previous error
 			if len(msg.Dirs) > 0 && len(msg.Items) == 0 {
 				// It's a list of Shows
 				var converted []plex.Video
@@ -225,7 +250,11 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	case MsgChildrenLoaded:
 		m.loading = false
 		m.needsRefresh = true
-		if msg.Err == nil {
+		m.filteredList = nil // Force refresh to show updated metadata
+		if msg.Err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to load content: %v", msg.Err)
+		} else {
+			m.errorMsg = "" // Clear any previous error
 			m.seasons = msg.Dirs
 			m.episodes = msg.Videos
 
@@ -233,6 +262,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			if m.mode == ModeSeasons {
 				if len(m.seasons) == 0 && len(m.episodes) > 0 {
 					m.mode = ModeEpisodes
+					m.filteredList = nil
 				}
 			}
 		}

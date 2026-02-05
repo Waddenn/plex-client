@@ -102,6 +102,11 @@ var (
 			BorderForeground(ColorBorder)
 )
 
+// SelectionIndicator returns the styled selection marker used across all views
+func SelectionIndicator() string {
+	return StyleHighlight.Render("▍") + " "
+}
+
 // Truncate safely truncates a string to a maximum length with an ellipsis.
 func Truncate(s string, max int) string {
 	if max <= 0 {
