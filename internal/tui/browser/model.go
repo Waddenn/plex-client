@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -47,6 +48,7 @@ func (s SortMethod) String() string {
 
 type Model struct {
 	plexClient *plex.Client
+	db         *sql.DB
 	width      int
 	height     int
 
@@ -78,7 +80,7 @@ type Model struct {
 	needsRefresh bool
 }
 
-func NewModel(p *plex.Client) Model {
+func NewModel(p *plex.Client, db *sql.DB) Model {
 	ti := textinput.New()
 	ti.Placeholder = "Search..."
 	ti.CharLimit = 156
@@ -86,6 +88,7 @@ func NewModel(p *plex.Client) Model {
 
 	return Model{
 		plexClient:   p,
+		db:           db,
 		loading:      false,
 		mode:         ModeSections,
 		textInput:    ti,
@@ -160,7 +163,51 @@ func (m *Model) SetType(t string) tea.Cmd {
 	m.showSearch = false
 	m.textInput.Reset()
 	m.needsRefresh = true
+
+	// Two-stage loading for sections is usually fast, but let's stick to sections for now
 	return fetchSections(m.plexClient, t)
+}
+
+func fetchLibraryItemsFromDB(db *sql.DB, targetType string) ([]plex.Video, error) {
+	var videos []plex.Video
+	var query string
+	if targetType == "movie" {
+		query = `SELECT id, title, year, part_key, duration, summary, rating, genres, originallyAvailableAt, content_rating, studio, added_at FROM films`
+	} else {
+		query = `SELECT id, title, summary, rating, genres, content_rating, studio, added_at FROM series`
+	}
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var v plex.Video
+		var genres string
+		if targetType == "movie" {
+			if err := rows.Scan(&v.RatingKey, &v.Title, &v.Year, &v.Key, &v.Duration, &v.Summary, &v.Rating, &genres, &v.OriginallyAvailableAt, &v.ContentRating, &v.Studio, &v.AddedAt); err != nil {
+				return nil, err
+			}
+			v.Type = "movie"
+		} else {
+			if err := rows.Scan(&v.RatingKey, &v.Title, &v.Summary, &v.Rating, &genres, &v.ContentRating, &v.Studio, &v.AddedAt); err != nil {
+				return nil, err
+			}
+			v.Type = "show"
+		}
+
+		// Parse genres back into Tags
+		if genres != "" {
+			for _, g := range strings.Split(genres, ", ") {
+				v.Genre = append(v.Genre, plex.Tag{Tag: g})
+			}
+		}
+
+		videos = append(videos, v)
+	}
+	return videos, nil
 }
 
 func (m *Model) Update(msg tea.Msg) tea.Cmd {
@@ -292,7 +339,15 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 						m.showSearch = false // Reset search when drilling down
 						m.textInput.Reset()
 						m.needsRefresh = true
-						return fetchLibraryItems(m.plexClient, item.Key)
+
+						// Instant load from DB
+						var cmds []tea.Cmd
+						if dbItems, err := fetchLibraryItemsFromDB(m.db, m.targetType); err == nil && len(dbItems) > 0 {
+							m.items = dbItems
+							m.loading = false // Hide loader if we have data
+						}
+						cmds = append(cmds, fetchLibraryItems(m.plexClient, item.Key))
+						return tea.Batch(cmds...)
 					} else if m.mode == ModeSeasons {
 						m.mode = ModeEpisodes
 						m.loading = true
@@ -331,7 +386,14 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 				m.mode = ModeItems
 				m.loading = true
 				m.needsRefresh = true
-				return fetchLibraryItems(m.plexClient, section.Key)
+
+				var cmds []tea.Cmd
+				if dbItems, err := fetchLibraryItemsFromDB(m.db, m.targetType); err == nil && len(dbItems) > 0 {
+					m.items = dbItems
+					m.loading = false
+				}
+				cmds = append(cmds, fetchLibraryItems(m.plexClient, section.Key))
+				return tea.Batch(cmds...)
 			}
 		}
 	case MsgItemsLoaded:
@@ -529,7 +591,12 @@ func (m *Model) View() string {
 		detailsWidth = 0
 	}
 
-	if m.loading {
+	// 1. Render List (Left Pane)
+	var listContent string
+
+	filteredList := m.getFilteredList()
+
+	if m.loading && len(filteredList) == 0 {
 		w := m.width - 6
 		h := m.height - 4
 		if w < 0 {
@@ -542,10 +609,6 @@ func (m *Model) View() string {
 		return shared.StyleBorder.Render(lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, content))
 	}
 
-	// 1. Render List (Left Pane)
-	var listContent string
-
-	filteredList := m.getFilteredList()
 	count := len(filteredList)
 
 	start := 0

@@ -44,7 +44,6 @@ func Sync(p PlexProvider, d *sql.DB, force bool) error {
 			continue
 		}
 
-
 		if s.Type == "movie" {
 			// log.Printf("Syncing movies section: %s", s.Title)
 			_, videos, err := p.GetSectionAll(s.Key) // Ignore Dirs, use Videos
@@ -59,10 +58,10 @@ func Sync(p PlexProvider, d *sql.DB, force bool) error {
 				}
 				genres := joinTags(v.Genre)
 				updatedAt := time.Now().Unix()
-				
-				_, err := tx.Exec(`INSERT OR REPLACE INTO films (id, title, year, part_key, duration, summary, rating, genres, originallyAvailableAt, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-					v.RatingKey, v.Title, v.Year, partKey, v.Duration, v.Summary, v.Rating, genres, v.OriginallyAvailableAt, updatedAt)
+
+				_, err := tx.Exec(`INSERT OR REPLACE INTO films (id, title, year, part_key, duration, summary, rating, genres, originallyAvailableAt, content_rating, studio, added_at, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					v.RatingKey, v.Title, v.Year, partKey, v.Duration, v.Summary, v.Rating, genres, v.OriginallyAvailableAt, v.ContentRating, v.Studio, v.AddedAt, updatedAt)
 				if err != nil {
 					log.Printf("Error inserting movie %s: %v", v.Title, err)
 				}
@@ -78,9 +77,9 @@ func Sync(p PlexProvider, d *sql.DB, force bool) error {
 				genres := joinTags(show.Genre)
 				updatedAt := time.Now().Unix()
 
-				_, err := tx.Exec(`INSERT OR REPLACE INTO series (id, title, summary, rating, genres, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?)`,
-					show.RatingKey, show.Title, show.Summary, show.Rating, genres, updatedAt)
+				_, err := tx.Exec(`INSERT OR REPLACE INTO series (id, title, summary, rating, genres, content_rating, studio, added_at, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					show.RatingKey, show.Title, show.Summary, show.Rating, genres, show.ContentRating, show.Studio, show.AddedAt, updatedAt)
 				if err != nil {
 					log.Printf("Error inserting show %s: %v", show.Title, err)
 					continue
@@ -138,7 +137,7 @@ func syncSeasons(p PlexProvider, tx *sql.Tx, showID string) error {
 				partKey = e.Media[0].Part[0].Key
 			}
 			eIndex := e.Index
-			
+
 			_, err := tx.Exec(`INSERT OR REPLACE INTO episodes (id, saison_id, episode_index, title, part_key, duration, summary, rating, updated_at) 
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				e.RatingKey, season.RatingKey, eIndex, e.Title, partKey, e.Duration, e.Summary, e.Rating, updatedAt)
