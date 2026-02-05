@@ -290,7 +290,7 @@ func (m *MainModel) View() string {
 	case shared.ViewDashboard:
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.dashboard.View())
 	case shared.ViewMovieBrowser, shared.ViewSeriesBrowser:
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.browser.View())
+		return m.browser.View()
 	case shared.ViewPlayer:
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, shared.StyleTitle.Render("▶ Playing Video..."))
 	case shared.ViewCountdown:
