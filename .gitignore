@@ -3,5 +3,5 @@ dev.nix
 .vscoderesult
 vendor/
 result
-plex-client
+/plex-client
 plex-cache.db
