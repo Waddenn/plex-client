@@ -83,6 +83,8 @@ func NewModel(p *plex.Client, s *store.Store) Model {
 	return Model{
 		plexClient:   p,
 		store:        s,
+		width:        80, // Sensible defaults
+		height:       24,
 		loading:      false,
 		mode:         ModeSections,
 		textInput:    ti,

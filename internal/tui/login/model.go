@@ -146,6 +146,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	frame := shared.StyleBorder.Copy()
+	innerWidth := m.width - frame.GetHorizontalFrameSize()
+	innerHeight := m.height - frame.GetVerticalFrameSize()
+	if innerWidth < 20 {
+		innerWidth = 20
+	}
+	if innerHeight < 5 {
+		innerHeight = 5
+	}
+
 	if m.err != nil {
 		content := lipgloss.JoinVertical(lipgloss.Center,
 			shared.StyleTitle.Render("❌ Login Error"),
@@ -154,7 +164,8 @@ func (m Model) View() string {
 			"",
 			shared.StyleDim.Render("Press q to quit"),
 		)
-		return shared.StyleBorder.Render(content)
+		card := lipgloss.NewStyle().Width(min(innerWidth, 60)).Render(content)
+		return frame.Render(lipgloss.Place(innerWidth, innerHeight, lipgloss.Center, lipgloss.Center, card))
 	}
 
 	var content string
@@ -225,7 +236,8 @@ func (m Model) View() string {
 		)
 	}
 
-	return shared.StyleBorder.Width(60).Render(content)
+	card := lipgloss.NewStyle().Width(min(innerWidth, 60)).Render(content)
+	return frame.Render(lipgloss.Place(innerWidth, innerHeight, lipgloss.Center, lipgloss.Center, card))
 }
 
 // -- Commands --

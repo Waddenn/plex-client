@@ -10,8 +10,6 @@ import (
 )
 
 func (m *Model) View() string {
-	var content string
-
 	// --- 1. Dynamic Breadcrumb Header ---
 	var breadcrumb string
 	switch m.mode {
@@ -29,13 +27,13 @@ func (m *Model) View() string {
 		breadcrumb = fmt.Sprintf("📂 Library > Series > Seasons > %s", shared.StyleHighlight.Render("Episodes"))
 	}
 
-	headerView := ""
+	headerViewSource := ""
 	if m.showSearch {
-		headerView = fmt.Sprintf("🔍 %s", m.textInput.View())
+		headerViewSource = fmt.Sprintf("🔍 %s", m.textInput.View())
 	} else {
-		headerView = breadcrumb
+		headerViewSource = breadcrumb
 		if m.textInput.Value() != "" {
-			headerView += shared.StyleDim.Render(fmt.Sprintf(" [Filter: %s]", m.textInput.Value()))
+			headerViewSource += shared.StyleDim.Render(fmt.Sprintf(" [Filter: %s]", m.textInput.Value()))
 		}
 	}
 
@@ -45,30 +43,28 @@ func (m *Model) View() string {
 		Border(lipgloss.NormalBorder(), false, false, true, false).
 		BorderForeground(shared.ColorPlexOrange)
 
-	renderedHeader := headerStyle.Render(headerView)
+	renderedHeader := headerStyle.Render(headerViewSource)
 
-	// Layout dims - Use full width/height
+	// Layout dims
 	availableWidth := m.width
-	if availableWidth < 20 { // Minimum width safety
-		availableWidth = 20
+	if availableWidth < 40 {
+		availableWidth = 40
 	}
-
 	availableHeight := m.height
 	if availableHeight < 10 {
 		availableHeight = 10
 	}
 
 	// Calculate heights
-	headerHeight := 3 // Title line + blank line + border bottom
+	headerHeight := 3
 	footerHeight := 1
 	listHeight := availableHeight - headerHeight - footerHeight
 	if listHeight < 0 {
 		listHeight = 0
 	}
 
-	// Responsive Logic: If too narrow, hide details
+	// Responsive Logic
 	showDetails := availableWidth > 80
-
 	var listWidth int
 	if showDetails {
 		listWidth = int(float64(availableWidth) * 0.35)
@@ -78,179 +74,136 @@ func (m *Model) View() string {
 	} else {
 		listWidth = availableWidth
 	}
-
-	// Details taking remaining space
 	detailsWidth := availableWidth - listWidth
-	if detailsWidth < 0 {
-		detailsWidth = 0
-	}
 
-	// 1. Render List (Left Pane)
-	var listContent string
-
+	// --- 4. Render Body ---
+	var leftPane, rightPane string
 	filteredList := m.getFilteredList()
-
-	if m.loading && len(filteredList) == 0 {
-		content = "Loading..."
-		return lipgloss.Place(availableWidth, availableHeight, lipgloss.Center, lipgloss.Center, content)
-	}
-
 	count := len(filteredList)
-
 	start := 0
 	end := 0
 
-	// Scrolling logic
-	if count > listHeight {
-		if m.cursor < listHeight/2 {
-			start = 0
-			end = listHeight
-		} else if m.cursor >= count-listHeight/2 {
-			start = count - listHeight
-			end = count
-		} else {
-			start = m.cursor - listHeight/2
-			end = start + listHeight
-		}
-	} else {
-		start = 0
-		end = count
-	}
-
-	for i := start; i < end; i++ {
-		item := filteredList[i]
-
-		prefix := "  "
-		// Truncate title to fit listWidth
-		maxLen := listWidth - 6
-		if maxLen < 5 {
-			maxLen = 5
-		}
-
-		var line string
-		var selected bool
-		if i == m.cursor {
-			prefix = "➤ "
-			selected = true
-		}
-
-		switch v := item.(type) {
-		case plex.Directory:
-			line = v.Title
-		case plex.Video:
-			if m.mode == ModeEpisodes {
-				line = fmt.Sprintf("%d. %s", v.Index, v.Title)
-			} else {
-				line = v.Title
-			}
-		}
-
-		if len(line) > maxLen {
-			line = line[:maxLen-1] + "…"
-		}
-
-		// Add indicators
-		indicators := ""
-		if v, ok := item.(plex.Video); ok {
-			if v.ViewCount > 0 {
-				indicators = " " + shared.StyleMetadataValue.Render("✔")
-			} else if v.ViewOffset > 0 && v.Duration > 0 {
-				indicators = " " + shared.StyleMetadataValue.Render("⏱")
-			}
-		}
-
-		// Create a style for the full row width
-		rowStyle := shared.StyleItemNormal
-		if selected {
-			// Highlight the entire row width
-			rowStyle = lipgloss.NewStyle().
-				Background(shared.ColorPlexOrange).
-				Foreground(lipgloss.Color("#000000")).
-				Bold(true).
-				Width(listWidth)
-		}
-
-		listContent += rowStyle.Render(fmt.Sprintf("%s%s%s", prefix, line, indicators)) + "\n"
-	}
-
-	// Fill remaining height with empty lines
-	linesRendered := end - start
-	for i := 0; i < listHeight-linesRendered; i++ {
-		listContent += "\n"
-	}
-
-	// 2. Render Details (Right Pane)
-	var details string
-
-	var selectedItem interface{}
-	if m.cursor < len(filteredList) {
-		selectedItem = filteredList[m.cursor]
-	}
-
-	if selectedItem != nil {
-		details = renderDetails(selectedItem, detailsWidth-4)
-	}
-
-	// Combine
-	// Left Pane
-	leftPane := lipgloss.NewStyle().
-		Width(listWidth).
-		Height(listHeight).
-		Render(listContent)
-
-	// Right Pane
-	var rightPane string
-	if showDetails {
-		rightPaneContent := lipgloss.NewStyle().
-			Width(detailsWidth-4).
-			Padding(0, 2).
-			Render(details)
-
-		rightPane = lipgloss.NewStyle().
-			Width(detailsWidth).
+	if m.loading && count == 0 {
+		leftPane = lipgloss.NewStyle().
+			Width(listWidth).
 			Height(listHeight).
-			Border(lipgloss.NormalBorder(), false, false, false, true).
-			BorderForeground(lipgloss.Color("#333333")).
-			Render(lipgloss.Place(detailsWidth, listHeight, lipgloss.Left, lipgloss.Top, rightPaneContent))
-	}
+			Render("\n\n  Loading...")
+	} else {
+		// Scrolling logic
+		if count > listHeight {
+			if m.cursor < listHeight/2 {
+				start = 0
+				end = listHeight
+			} else if m.cursor >= count-listHeight/2 {
+				start = count - listHeight
+				end = count
+			} else {
+				start = m.cursor - listHeight/2
+				end = start + listHeight
+			}
+		} else {
+			start = 0
+			end = count
+		}
 
-	// --- 2. Enriched Footer ---
-	totalElements := len(m.getFilteredList())
-	unwatchedCount := 0
-	for _, item := range m.getFilteredList() {
-		if v, ok := item.(plex.Video); ok && v.ViewCount == 0 {
-			unwatchedCount++
+		var listContent string
+		for i := start; i < end; i++ {
+			item := filteredList[i]
+			prefix := "  "
+			maxLen := listWidth - 6
+			if maxLen < 5 {
+				maxLen = 5
+			}
+
+			var line string
+			selected := (i == m.cursor)
+
+			switch v := item.(type) {
+			case plex.Directory:
+				line = v.Title
+			case plex.Video:
+				if m.mode == ModeEpisodes {
+					line = fmt.Sprintf("%d. %s", v.Index, v.Title)
+				} else {
+					line = v.Title
+				}
+			}
+
+			if len(line) > maxLen {
+				line = line[:maxLen-1] + "…"
+			}
+
+			indicators := ""
+			if v, ok := item.(plex.Video); ok {
+				if v.ViewCount > 0 {
+					indicators = " " + shared.StyleMetadataValue.Render("✔")
+				} else if v.ViewOffset > 0 && v.Duration > 0 {
+					indicators = " " + shared.StyleMetadataValue.Render("⏱")
+				}
+			}
+
+			rowStyle := shared.StyleItemNormal
+			if selected {
+				rowStyle = lipgloss.NewStyle().
+					Background(shared.ColorPlexOrange).
+					Foreground(lipgloss.Color("#000000")).
+					Bold(true).
+					Width(listWidth)
+				prefix = "➤ "
+			}
+
+			listContent += rowStyle.Render(fmt.Sprintf("%s%s%s", prefix, line, indicators)) + "\n"
+		}
+
+		// Fill remaining height
+		linesRendered := end - start
+		for i := 0; i < listHeight-linesRendered; i++ {
+			listContent += "\n"
+		}
+
+		leftPane = lipgloss.NewStyle().
+			Width(listWidth).
+			Height(listHeight).
+			Render(listContent)
+
+		if showDetails {
+			var selectedItem interface{}
+			if m.cursor < len(filteredList) {
+				selectedItem = filteredList[m.cursor]
+			}
+
+			details := ""
+			if selectedItem != nil {
+				details = renderDetails(selectedItem, detailsWidth-4)
+			}
+
+			rightPaneContent := lipgloss.NewStyle().
+				Width(detailsWidth-4).
+				Padding(0, 2).
+				Render(details)
+
+			rightPane = lipgloss.NewStyle().
+				Width(detailsWidth).
+				Height(listHeight).
+				Border(lipgloss.NormalBorder(), false, false, false, true).
+				BorderForeground(lipgloss.Color("#333333")).
+				Render(lipgloss.Place(detailsWidth, listHeight, lipgloss.Left, lipgloss.Top, rightPaneContent))
 		}
 	}
 
-	footerParts := []string{
-		fmt.Sprintf("%d elements", totalElements),
-		fmt.Sprintf("Sorted by %s", m.sortMethod.String()),
-	}
-	if unwatchedCount > 0 {
-		footerParts = append(footerParts, fmt.Sprintf("%d unwatched", unwatchedCount))
-	}
+	// Footer
+	totalElements := len(m.getFilteredList())
+	footerText := fmt.Sprintf("%d elements • Sorted by %s", totalElements, m.sortMethod.String())
+	helpKeys := "[/] Search • [S] Sort • [Enter] Select • [Q] Quit"
 
-	footerText := strings.Join(footerParts, " • ")
-
-	// Help keys (Right aligned feel)
-	helpKeys := shared.StyleDim.Render(" [/] Search • [S] Sort • [Enter] Select • [Q] Quit")
-
-	footerStyle := lipgloss.NewStyle().
-		Width(m.width).
-		Padding(0, 1).
-		Background(lipgloss.Color("#1a1a1a")).
-		Foreground(shared.ColorLightGrey)
-
-	// Calculate space for help keys
+	footerStyle := shared.StyleFooter.Copy().Width(availableWidth)
 	footerContent := footerText
-	spaceCount := m.width - lipgloss.Width(footerText) - lipgloss.Width(helpKeys) - 2
-	if spaceCount > 0 {
-		footerContent += strings.Repeat(" ", spaceCount) + helpKeys
+	space := availableWidth - lipgloss.Width(footerText) - lipgloss.Width(helpKeys) - 2
+	if space > 0 {
+		footerContent += strings.Repeat(" ", space) + helpKeys
 	} else {
 		footerContent += "  " + helpKeys
 	}
-
 	renderedFooter := footerStyle.Render(footerContent)
 
 	// Final Assemble

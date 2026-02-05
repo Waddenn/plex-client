@@ -16,7 +16,6 @@ import (
 	"github.com/Waddenn/plex-client/internal/tui/settings"
 	"github.com/Waddenn/plex-client/internal/tui/shared"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 type MainModel struct {
@@ -104,6 +103,7 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dashboard, _ = m.dashboard.Update(msg)
 		newLogin, _ := m.login.Update(msg)
 		m.login = newLogin.(login.Model)
+		m.settings, _ = m.settings.Update(msg)
 		cmd = m.browser.Update(msg)
 		return m, cmd
 	}
@@ -292,17 +292,17 @@ func (m MainModel) playCurrentQueueItem() tea.Cmd {
 func (m *MainModel) View() string {
 	switch m.currentView {
 	case shared.ViewLogin:
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.login.View())
+		return m.login.View()
 	case shared.ViewDashboard:
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.dashboard.View())
+		return m.dashboard.View()
 	case shared.ViewMovieBrowser, shared.ViewSeriesBrowser:
 		return m.browser.View()
 	case shared.ViewPlayer:
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, shared.StyleTitle.Render("▶ Playing Video..."))
+		return shared.StyleBorder.Render(shared.StyleTitle.Render("▶ Playing Video..."))
 	case shared.ViewCountdown:
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.countdown.View())
+		return m.countdown.View()
 	case shared.ViewSettings:
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.settings.View())
+		return m.settings.View()
 	}
 
 	return "Unknown View"
