@@ -3,12 +3,14 @@ package tui
 import (
 	"database/sql"
 	"fmt"
+	"os"
 
 	"github.com/Waddenn/plex-client/internal/config"
 	"github.com/Waddenn/plex-client/internal/player"
 	"github.com/Waddenn/plex-client/internal/plex"
 	"github.com/Waddenn/plex-client/internal/tui/browser"
 	"github.com/Waddenn/plex-client/internal/tui/dashboard"
+	"github.com/Waddenn/plex-client/internal/tui/settings"
 	"github.com/Waddenn/plex-client/internal/tui/shared"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -27,6 +29,7 @@ type MainModel struct {
 	// Sub-models
 	dashboard dashboard.Model
 	browser   *browser.Model
+	settings  settings.Model
 	countdown CountdownModel
 
 	// Play Queue State
@@ -43,6 +46,7 @@ func NewModel(db *sql.DB, cfg *config.Config, p *plex.Client) MainModel {
 		currentView: shared.ViewDashboard,
 		dashboard:   dashboard.NewModel(p),
 		browser:     &bm,
+		settings:    settings.NewModel(cfg),
 	}
 }
 
@@ -99,14 +103,20 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case shared.MsgBack:
 		if m.currentView != shared.ViewDashboard {
+			m.currentView = shared.ViewDashboard
 			// Clear queue state
 			m.playQueue = nil
 			m.queueIdx = 0
 
-			m.currentView = shared.ViewDashboard
-			// Maybe refresh dashboard?
+			// Refresh dashboard
 			return m, m.dashboard.Init()
 		}
+		return m, tea.Quit
+
+	case shared.MsgError:
+		fmt.Fprintf(os.Stderr, "ERROR: %v\n", msg.Err)
+		m.currentView = shared.ViewDashboard
+		return m, nil
 
 	case shared.MsgPlayVideo:
 		// Assert video type
@@ -179,6 +189,10 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case MsgPlayNext:
 		// Triggered by countdown completion
 		return m, m.playCurrentQueueItem()
+
+	case settings.MsgConfigChanged:
+		m.cfg = msg.Config
+		return m, nil
 	}
 
 	// Update active submodel
@@ -192,6 +206,10 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case shared.ViewCountdown:
 		newModel, newCmd := m.countdown.Update(msg)
 		m.countdown = *newModel.(*CountdownModel)
+		cmd = newCmd
+	case shared.ViewSettings:
+		newModel, newCmd := m.settings.Update(msg)
+		m.settings = newModel
 		cmd = newCmd
 	}
 
@@ -243,6 +261,8 @@ func (m *MainModel) View() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, shared.StyleTitle.Render("▶ Playing Video..."))
 	case shared.ViewCountdown:
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.countdown.View())
+	case shared.ViewSettings:
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.settings.View())
 	}
 
 	return "Unknown View"

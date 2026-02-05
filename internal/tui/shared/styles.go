@@ -95,4 +95,5 @@ const (
 	ViewEpisodeBrowser
 	ViewPlayer
 	ViewCountdown
+	ViewSettings
 )

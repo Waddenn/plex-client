@@ -109,7 +109,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 		case "down", "j":
 			if m.activeColumn == 0 {
-				if m.sidebarCursor < 2 { // Home, Movies, Series
+				if m.sidebarCursor < 3 { // Home, Movies, Series, Settings
 					m.sidebarCursor++
 				}
 			} else {
@@ -145,6 +145,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 					return m, func() tea.Msg { return shared.MsgSwitchView{View: shared.ViewMovieBrowser} }
 				case 2: // Series
 					return m, func() tea.Msg { return shared.MsgSwitchView{View: shared.ViewSeriesBrowser} }
+				case 3: // Settings
+					return m, func() tea.Msg { return shared.MsgSwitchView{View: shared.ViewSettings} }
 				}
 			} else {
 				// Content Actions
@@ -191,7 +193,7 @@ func (m Model) View() string {
 }
 
 func (m Model) renderSidebar() string {
-	items := []string{"🏠 Dashboard", "🎬 Movies", "📺 TV Series"}
+	items := []string{"🏠 Dashboard", "🎬 Movies", "📺 TV Series", "⚙️ Settings"}
 
 	var renderedItems []string
 
