@@ -22,6 +22,10 @@ type PlexConfig struct {
 type PlayerConfig struct {
 	Quality          string   `toml:"quality"`
 	MPVArgs          []string `toml:"mpv_args"`
+	UseCPU           bool     `toml:"use_cpu"`
+	HWDec            string   `toml:"hwdec"` // e.g., vaapi, vulkan, auto
+	VO               string   `toml:"vo"`    // e.g., gpu-next, wayland
+	ToneMapping      string   `toml:"tone-mapping"`
 	SubtitlesEnabled bool     `toml:"subtitles_enabled"`
 	SubtitlesLang    string   `toml:"subtitles_lang"`
 	AudioLang        string   `toml:"audio_lang"`
