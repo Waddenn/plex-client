@@ -1,8 +1,11 @@
 package config
 
 import (
+	"crypto/rand"
+	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -15,8 +18,9 @@ type Config struct {
 }
 
 type PlexConfig struct {
-	BaseURL string `toml:"baseurl"`
-	Token   string `toml:"token"`
+	BaseURL          string `toml:"baseurl"`
+	Token            string `toml:"token"`
+	ClientIdentifier string `toml:"client_identifier"`
 }
 
 type PlayerConfig struct {
@@ -113,7 +117,21 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	if cfg.Plex.ClientIdentifier == "" {
+		cfg.Plex.ClientIdentifier = generateClientID()
+		_ = Save(cfg) // Best effort save
+	}
+
 	return cfg, nil
+}
+
+func generateClientID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback if random fails
+		return "plex-client-go-cli-" + time.Now().Format("20060102150405")
+	}
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
 // Save saves config to TOML
