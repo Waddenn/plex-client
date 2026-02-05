@@ -114,8 +114,14 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle init logic for specific views
 		if msg.View == shared.ViewMovieBrowser {
+			if m.width > 0 && m.height > 0 {
+				_ = m.browser.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+			}
 			return m, m.browser.SetType("movie")
 		} else if msg.View == shared.ViewSeriesBrowser {
+			if m.width > 0 && m.height > 0 {
+				_ = m.browser.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+			}
 			return m, m.browser.SetType("show")
 		}
 		return m, nil
@@ -222,6 +228,9 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		st := store.New(m.db)
 		bm := browser.NewModel(m.plexClient, st)
 		m.browser = &bm
+		if m.width > 0 && m.height > 0 {
+			_ = m.browser.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+		}
 		m.dashboard = dashboard.NewModel(m.plexClient)
 
 		// Switch to dashboard

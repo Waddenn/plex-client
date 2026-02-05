@@ -14,6 +14,7 @@ var (
 	ColorRed        = lipgloss.Color("#e52d27")
 	ColorDeepRed    = lipgloss.Color("#922b21")
 	ColorBackground = lipgloss.Color("#0f0f0f")
+	ColorBorder     = lipgloss.Color("#333333")
 
 	// Layout
 	FramePaddingX = 2
@@ -78,8 +79,8 @@ var (
 
 	StyleSidebar = lipgloss.NewStyle().
 			Width(SidebarWidth).
-			Border(lipgloss.RoundedBorder(), false, true, false, false). // Right border only
-			BorderForeground(ColorDarkGrey).
+			Border(lipgloss.NormalBorder(), false, true, false, false). // Right border only
+			BorderForeground(ColorBorder).
 			Padding(0, 1)
 
 	StyleBadge = lipgloss.NewStyle().
@@ -95,6 +96,10 @@ var (
 	StyleRole = lipgloss.NewStyle().
 			Foreground(ColorPlexOrange).
 			Italic(true)
+
+	StyleRightPanel = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), false, false, false, true).
+			BorderForeground(ColorBorder)
 )
 
 // Truncate safely truncates a string to a maximum length with an ellipsis.

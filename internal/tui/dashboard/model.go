@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/Waddenn/plex-client/internal/plex"
 	"github.com/Waddenn/plex-client/internal/tui/shared"
@@ -178,29 +177,14 @@ func (m *Model) View() string {
 	}
 
 	// --- 1. Layout dims ---
-	availableWidth := m.width
-	if availableWidth < 20 {
-		availableWidth = 20
-	}
-	availableHeight := m.height
-	if availableHeight < 10 {
-		availableHeight = 10
-	}
-
+	availableWidth := shared.ClampMin(m.width, 20)
 	// --- 2. Render Header ---
-	header := shared.StyleHeader.Copy().Width(availableWidth).Render("🏠 Dashboard")
+	header, headerHeight := shared.RenderHeaderLegacySafe("🏠 Dashboard", availableWidth)
 
 	// --- 3. Render Footer ---
 	help := "[←/→] Focus • [↑/↓] Navigate • [Enter] Open • [Q] Quit"
-	space := availableWidth - lipgloss.Width(help) - 2
-	footerContent := help
-	if space > 0 {
-		footerContent = strings.Repeat(" ", space) + help
-	}
-	footer := shared.StyleFooter.Copy().Width(availableWidth).Render(footerContent)
+	footer, footerHeight := shared.RenderFooterLegacySafe("", help, availableWidth)
 
-	headerHeight := lipgloss.Height(header)
-	footerHeight := lipgloss.Height(footer)
 	contentHeight := m.height - headerHeight - footerHeight
 	if contentHeight < 3 {
 		contentHeight = 3
@@ -212,7 +196,7 @@ func (m *Model) View() string {
 	if contentWidth < 20 {
 		contentWidth = 20
 	}
-	content := m.renderContent(contentWidth, contentHeight)
+	content := m.renderContent(m.width, contentWidth, contentHeight, lipgloss.Width(sidebar))
 
 	// Combine Horizontal
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
@@ -226,15 +210,15 @@ func (m *Model) renderSidebar(height int) string {
 
 	for i, item := range items {
 		style := shared.StyleItemNormal
-		prefix := "  "
+		indicator := "  "
 
 		// If sidebar is active, show highlight
 		if m.activeColumn == 0 && m.sidebarCursor == i {
-			style = shared.StyleItemActive.Copy().Width(shared.SidebarWidth - 2)
-			prefix = "> "
+			indicator = shared.StyleHighlight.Render("▍") + " "
+			style = shared.StyleItemNormal.Copy().Foreground(shared.ColorPlexOrange).Bold(true)
 		}
 
-		renderedItems = append(renderedItems, style.Render(prefix+item))
+		renderedItems = append(renderedItems, style.Copy().Width(shared.SidebarWidth-2).MaxHeight(1).Render(indicator+item))
 	}
 
 	// Add padding/spacing
@@ -247,7 +231,7 @@ func (m *Model) renderSidebar(height int) string {
 	return sidebarStyle.Render(list)
 }
 
-func (m *Model) renderContent(width int, height int) string {
+func (m *Model) renderContent(totalWidth int, width int, height int, sidebarWidth int) string {
 	if len(m.onDeck) == 0 {
 		return shared.StyleDim.Render("No content active.")
 	}
@@ -274,12 +258,8 @@ func (m *Model) renderContent(width int, height int) string {
 		list,
 	)
 
-	if width > 80 {
-		leftWidth := int(float64(width) * 0.45)
-		if leftWidth < 30 {
-			leftWidth = 30
-		}
-		rightWidth := width - leftWidth
+	if width > shared.SplitThreshold {
+		leftWidth, rightWidth := shared.SplitWithSidebar(totalWidth, sidebarWidth, shared.SplitLeftRatio, shared.SplitMinLeft, shared.SplitMinRight)
 
 		// Re-calculate hero and list with correct width
 		hero = m.renderHeroLine(m.onDeck[0], m.activeColumn == 1 && m.contentCursor == 0, leftWidth)
@@ -312,8 +292,8 @@ func (m Model) renderHeroLine(item plex.Video, active bool, width int) string {
 	prefix := "  "
 	style := shared.StyleItemNormal
 	if active {
-		prefix = "> "
-		style = shared.StyleItemActive
+		prefix = shared.StyleHighlight.Render("▍") + " "
+		style = shared.StyleItemNormal.Copy().Foreground(shared.ColorPlexOrange).Bold(true)
 	}
 
 	title := item.Title
@@ -353,8 +333,8 @@ func (m Model) renderList(items []plex.Video, width int) string {
 		prefix := "  "
 		style := shared.StyleItemNormal
 		if isActive {
-			prefix = "> "
-			style = shared.StyleItemActive
+			prefix = shared.StyleHighlight.Render("▍") + " "
+			style = shared.StyleItemNormal.Copy().Foreground(shared.ColorPlexOrange).Bold(true)
 		}
 
 		title := item.Title
@@ -413,15 +393,11 @@ func (m Model) renderDetailsPanel(item plex.Video, width int, height int) string
 		lipgloss.NewStyle().Width(width-4).Foreground(lipgloss.Color("#cccccc")).Render(summary),
 	)
 
-	panel := lipgloss.NewStyle().
+	panelStyle := shared.StyleRightPanel.Copy().
 		Width(width).
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(lipgloss.Color("#333333")).
-		Padding(0, 2).
-		Render(content)
-
+		Padding(0, 2)
 	if height > 0 {
-		return lipgloss.NewStyle().Height(height).Render(panel)
+		panelStyle = panelStyle.Height(height)
 	}
-	return panel
+	return panelStyle.Render(content)
 }

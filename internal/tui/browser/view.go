@@ -14,17 +14,17 @@ func (m *Model) View() string {
 	var breadcrumb string
 	switch m.mode {
 	case ModeSections:
-		breadcrumb = fmt.Sprintf("📂 %s", shared.StyleHighlight.Render("Library"))
+		breadcrumb = "📂 Library"
 	case ModeItems:
 		title := "Movies"
 		if m.targetType == "show" {
 			title = "Series"
 		}
-		breadcrumb = fmt.Sprintf("📂 Library > %s", shared.StyleHighlight.Render(title))
+		breadcrumb = fmt.Sprintf("📂 Library > %s", title)
 	case ModeSeasons:
-		breadcrumb = fmt.Sprintf("📂 Library > Series > %s", shared.StyleHighlight.Render("Seasons"))
+		breadcrumb = "📂 Library > Series > Seasons"
 	case ModeEpisodes:
-		breadcrumb = fmt.Sprintf("📂 Library > Series > Seasons > %s", shared.StyleHighlight.Render("Episodes"))
+		breadcrumb = "📂 Library > Series > Seasons > Episodes"
 	}
 
 	headerViewSource := ""
@@ -36,41 +36,21 @@ func (m *Model) View() string {
 			headerViewSource += shared.StyleDim.Render(fmt.Sprintf(" [Filter: %s]", m.textInput.Value()))
 		}
 	}
-
-	headerStyle := lipgloss.NewStyle().
-		Width(m.width).
-		Padding(0, 1).
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(shared.ColorPlexOrange)
-
-	renderedHeader := headerStyle.Render(headerViewSource)
+	if shared.IsBlankVisible(headerViewSource) {
+		headerViewSource = "Browse"
+	}
 
 	// Layout dims
-	availableWidth := m.width
-	if availableWidth < 40 {
-		availableWidth = 40
-	}
-	availableHeight := m.height
-	if availableHeight < 10 {
-		availableHeight = 10
-	}
+	availableWidth := shared.ClampMin(m.width, 40)
+	availableHeight := shared.ClampMin(m.height, 10)
 
-	// Calculate heights
-	headerHeight := 3
-	footerHeight := 1
-	listHeight := availableHeight - headerHeight - footerHeight
-	if listHeight < 0 {
-		listHeight = 0
-	}
+	renderedHeader, headerHeight := shared.RenderHeaderLegacySafe(headerViewSource, availableWidth)
 
 	// Responsive Logic
-	showDetails := availableWidth > 80
+	showDetails := availableWidth > shared.SplitThreshold
 	var listWidth int
 	if showDetails {
-		listWidth = int(float64(availableWidth) * 0.35)
-		if listWidth < 30 {
-			listWidth = 30
-		}
+		listWidth, _ = shared.SplitWidths(availableWidth, shared.SplitLeftRatio, shared.SplitMinLeft, shared.SplitMinRight)
 	} else {
 		listWidth = availableWidth
 	}
@@ -82,6 +62,19 @@ func (m *Model) View() string {
 	count := len(filteredList)
 	start := 0
 	end := 0
+
+	// Footer
+	totalElements := len(filteredList)
+	footerText := fmt.Sprintf("%d elements • Sorted by %s", totalElements, m.sortMethod.String())
+	helpKeys := "[/] Search • [S] Sort • [Enter] Select • [Q] Quit"
+	renderedFooter, footerHeight := shared.RenderFooterLegacySafe(footerText, helpKeys, availableWidth)
+
+	// Calculate heights
+	// footerHeight fixed to 1 via RenderFooterLegacySafe
+	listHeight := availableHeight - headerHeight - footerHeight
+	if listHeight < 0 {
+		listHeight = 0
+	}
 
 	if m.loading && count == 0 {
 		leftPane = lipgloss.NewStyle().
@@ -142,14 +135,13 @@ func (m *Model) View() string {
 				}
 			}
 
-			rowStyle := shared.StyleItemNormal
+			rowStyle := shared.StyleItemNormal.Copy().Width(listWidth).MaxHeight(1)
 			if selected {
-				rowStyle = lipgloss.NewStyle().
-					Background(shared.ColorPlexOrange).
-					Foreground(lipgloss.Color("#000000")).
+				rowStyle = rowStyle.Copy().
+					Foreground(shared.ColorPlexOrange).
 					Bold(true).
 					Width(listWidth)
-				prefix = "➤ "
+				prefix = shared.StyleHighlight.Render("▍") + " "
 			}
 
 			listContent += rowStyle.Render(fmt.Sprintf("%s%s%s", prefix, line, indicators)) + "\n"
@@ -182,29 +174,12 @@ func (m *Model) View() string {
 				Padding(0, 2).
 				Render(details)
 
-			rightPane = lipgloss.NewStyle().
+			rightPane = shared.StyleRightPanel.Copy().
 				Width(detailsWidth).
 				Height(listHeight).
-				Border(lipgloss.NormalBorder(), false, false, false, true).
-				BorderForeground(lipgloss.Color("#333333")).
 				Render(lipgloss.Place(detailsWidth, listHeight, lipgloss.Left, lipgloss.Top, rightPaneContent))
 		}
 	}
-
-	// Footer
-	totalElements := len(m.getFilteredList())
-	footerText := fmt.Sprintf("%d elements • Sorted by %s", totalElements, m.sortMethod.String())
-	helpKeys := "[/] Search • [S] Sort • [Enter] Select • [Q] Quit"
-
-	footerStyle := shared.StyleFooter.Copy().Width(availableWidth)
-	footerContent := footerText
-	space := availableWidth - lipgloss.Width(footerText) - lipgloss.Width(helpKeys) - 2
-	if space > 0 {
-		footerContent += strings.Repeat(" ", space) + helpKeys
-	} else {
-		footerContent += "  " + helpKeys
-	}
-	renderedFooter := footerStyle.Render(footerContent)
 
 	// Final Assemble
 	var mainBody string
