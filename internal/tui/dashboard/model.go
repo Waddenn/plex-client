@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Waddenn/plex-client/internal/plex"
 	"github.com/Waddenn/plex-client/internal/tui/shared"
@@ -30,6 +31,8 @@ type Model struct {
 func NewModel(p *plex.Client) Model {
 	return Model{
 		plexClient:    p,
+		width:         80,
+		height:        24,
 		loading:       true,
 		activeColumn:  1, // Start on Content (Hero)
 		sidebarCursor: 0,
@@ -109,7 +112,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 		case "down", "j":
 			if m.activeColumn == 0 {
-				if m.sidebarCursor < 3 { // Home, Movies, Series, Settings
+				if m.sidebarCursor < 2 { // Movies, Series, Settings
 					m.sidebarCursor++
 				}
 			} else {
@@ -138,14 +141,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.activeColumn == 0 {
 				// Sidebar Actions
 				switch m.sidebarCursor {
-				case 0: // Home - Refresh
-					m.loading = true
-					return m, fetchOnDeck(m.plexClient)
-				case 1: // Movies
+				case 0: // Movies
 					return m, func() tea.Msg { return shared.MsgSwitchView{View: shared.ViewMovieBrowser} }
-				case 2: // Series
+				case 1: // Series
 					return m, func() tea.Msg { return shared.MsgSwitchView{View: shared.ViewSeriesBrowser} }
-				case 3: // Settings
+				case 2: // Settings
 					return m, func() tea.Msg { return shared.MsgSwitchView{View: shared.ViewSettings} }
 				}
 			} else {
@@ -172,28 +172,55 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) View() string {
+func (m *Model) View() string {
 	if m.loading {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, "Loading...")
 	}
 
+	// --- 1. Layout dims ---
+	availableWidth := m.width
+	if availableWidth < 20 {
+		availableWidth = 20
+	}
+	availableHeight := m.height
+	if availableHeight < 10 {
+		availableHeight = 10
+	}
+
+	// --- 2. Render Header ---
+	header := shared.StyleHeader.Copy().Width(availableWidth).Render("🏠 Dashboard")
+
+	// --- 3. Render Footer ---
+	help := "[←/→] Focus • [↑/↓] Navigate • [Enter] Open • [Q] Quit"
+	space := availableWidth - lipgloss.Width(help) - 2
+	footerContent := help
+	if space > 0 {
+		footerContent = strings.Repeat(" ", space) + help
+	}
+	footer := shared.StyleFooter.Copy().Width(availableWidth).Render(footerContent)
+
+	headerHeight := lipgloss.Height(header)
+	footerHeight := lipgloss.Height(footer)
+	contentHeight := m.height - headerHeight - footerHeight
+	if contentHeight < 3 {
+		contentHeight = 3
+	}
+
 	// Layout components
-	sidebar := m.renderSidebar()
-	content := m.renderContent()
+	sidebar := m.renderSidebar(contentHeight)
+	contentWidth := m.width - lipgloss.Width(sidebar)
+	if contentWidth < 20 {
+		contentWidth = 20
+	}
+	content := m.renderContent(contentWidth, contentHeight)
 
 	// Combine Horizontal
-	// Sidebar | Content
-
-	return shared.StyleBorder.Render(
-		lipgloss.JoinHorizontal(lipgloss.Top,
-			sidebar,
-			content,
-		),
-	)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
+	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }
 
-func (m Model) renderSidebar() string {
-	items := []string{"🏠 Dashboard", "🎬 Movies", "📺 TV Series", "⚙️ Settings"}
+func (m *Model) renderSidebar(height int) string {
+	items := []string{"🎬 Movies", "📺 TV Series", "⚙️ Settings"}
 
 	var renderedItems []string
 
@@ -203,11 +230,8 @@ func (m Model) renderSidebar() string {
 
 		// If sidebar is active, show highlight
 		if m.activeColumn == 0 && m.sidebarCursor == i {
-			style = shared.StyleItemActive
-			prefix = "│ "
-		} else if m.sidebarCursor == i {
-			// Show selection but dim if not active column?
-			// Or just show plain if not active
+			style = shared.StyleItemActive.Copy().Width(shared.SidebarWidth - 2)
+			prefix = "> "
 		}
 
 		renderedItems = append(renderedItems, style.Render(prefix+item))
@@ -216,71 +240,109 @@ func (m Model) renderSidebar() string {
 	// Add padding/spacing
 	list := lipgloss.JoinVertical(lipgloss.Left, renderedItems...)
 
-	return shared.StyleSidebar.Render(list)
+	sidebarStyle := shared.StyleSidebar.Copy()
+	if height > 0 {
+		sidebarStyle = sidebarStyle.Height(height)
+	}
+	return sidebarStyle.Render(list)
 }
 
-func (m Model) renderContent() string {
+func (m *Model) renderContent(width int, height int) string {
 	if len(m.onDeck) == 0 {
-		return "No content active."
+		return shared.StyleDim.Render("No content active.")
 	}
 
-	// 1. Hero (Index 0)
-	hero := m.renderHero(m.onDeck[0], m.activeColumn == 1 && m.contentCursor == 0)
+	selected := m.onDeck[0]
+	if m.contentCursor >= 0 && m.contentCursor < len(m.onDeck) {
+		selected = m.onDeck[m.contentCursor]
+	}
+
+	// 1. Continue Watching (Index 0)
+	hero := m.renderHeroLine(m.onDeck[0], m.activeColumn == 1 && m.contentCursor == 0, width)
 
 	// 2. Up Next List (Index 1+)
 	list := ""
 	if len(m.onDeck) > 1 {
-		list = m.renderList(m.onDeck[1:])
+		list = m.renderList(m.onDeck[1:], width)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left,
+	leftBody := lipgloss.JoinVertical(lipgloss.Left,
+		shared.StyleTitle.Render("Continue Watching"),
 		hero,
-		" ",
+		"",
 		shared.StyleTitle.Render("Up Next"),
 		list,
 	)
+
+	if width > 80 {
+		leftWidth := int(float64(width) * 0.45)
+		if leftWidth < 30 {
+			leftWidth = 30
+		}
+		rightWidth := width - leftWidth
+
+		// Re-calculate hero and list with correct width
+		hero = m.renderHeroLine(m.onDeck[0], m.activeColumn == 1 && m.contentCursor == 0, leftWidth)
+		list = ""
+		if len(m.onDeck) > 1 {
+			list = m.renderList(m.onDeck[1:], leftWidth)
+		}
+
+		leftBody = lipgloss.JoinVertical(lipgloss.Left,
+			shared.StyleTitle.Render("Continue Watching"),
+			hero,
+			"",
+			shared.StyleTitle.Render("Up Next"),
+			list,
+		)
+
+		left := lipgloss.NewStyle().Width(leftWidth).Render(leftBody)
+		right := m.renderDetailsPanel(selected, rightWidth, height)
+		return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	}
+
+	container := lipgloss.NewStyle().Width(width)
+	if height > 0 {
+		container = container.Height(height)
+	}
+	return container.Render(leftBody)
 }
 
-func (m Model) renderHero(item plex.Video, active bool) string {
-	// Dynamically size hero?
-	// For now, let's make it fixed width or fill available
-	// The sidebar takes ~25 chars + padding.
-
-	style := shared.StyleHero.Copy().Width(60) // Fixed width for now to look good
+func (m Model) renderHeroLine(item plex.Video, active bool, width int) string {
+	prefix := "  "
+	style := shared.StyleItemNormal
 	if active {
-		style = style.BorderForeground(shared.ColorPlexOrange)
-	} else {
-		style = style.BorderForeground(shared.ColorDarkGrey)
+		prefix = "> "
+		style = shared.StyleItemActive
 	}
 
-	title := shared.StyleHighlight.Render(item.Title)
+	title := item.Title
 	if item.Type == "episode" {
-		title = fmt.Sprintf("%s\n%s",
-			shared.StyleHighlight.Render(item.GrandparentTitle),
-			shared.StyleDim.Render(fmt.Sprintf("S%02dE%02d - %s", item.ParentIndex, item.Index, item.Title)))
+		title = fmt.Sprintf("%s - S%02dE%02d", item.GrandparentTitle, item.ParentIndex, item.Index)
 	}
 
-	// Progress
-	prog := ""
+	prog := "Ready to play"
 	if item.ViewOffset > 0 && item.Duration > 0 {
 		percent := int((float64(item.ViewOffset) / float64(item.Duration)) * 100)
-		prog = shared.StyleSecondary.Render(fmt.Sprintf("%d%% watched", percent))
-	} else {
-		prog = shared.StyleSecondary.Render("Ready to play")
+		prog = fmt.Sprintf("%d%% watched", percent)
 	}
 
-	content := lipgloss.JoinVertical(lipgloss.Center,
-		" ▶ Continue Watching ",
-		" ",
-		title,
-		" ",
-		prog,
-	)
+	line := fmt.Sprintf("%s%s • %s", prefix, title, prog)
 
-	return style.Render(content)
+	maxLen := width - 2
+	if maxLen < 10 {
+		maxLen = 10
+	}
+
+	rowStyle := style.Copy().MaxHeight(1)
+	if width > 0 {
+		rowStyle = rowStyle.Width(width)
+	}
+
+	return rowStyle.Render(shared.Truncate(line, maxLen))
 }
 
-func (m Model) renderList(items []plex.Video) string {
+func (m Model) renderList(items []plex.Video, width int) string {
 	var rows []string
 
 	for i, item := range items {
@@ -291,7 +353,7 @@ func (m Model) renderList(items []plex.Video) string {
 		prefix := "  "
 		style := shared.StyleItemNormal
 		if isActive {
-			prefix = "│ "
+			prefix = "> "
 			style = shared.StyleItemActive
 		}
 
@@ -300,9 +362,66 @@ func (m Model) renderList(items []plex.Video) string {
 			title = fmt.Sprintf("%s - S%02dE%02d", item.GrandparentTitle, item.ParentIndex, item.Index)
 		}
 
-		row := style.Render(fmt.Sprintf("%s%s", prefix, title))
+		maxLen := width - 4
+		if maxLen < 10 {
+			maxLen = 10
+		}
+
+		line := fmt.Sprintf("%s%s", prefix, title)
+
+		rowStyle := style.Copy().MaxHeight(1)
+		if width > 0 {
+			rowStyle = rowStyle.Width(width)
+		}
+		row := rowStyle.Render(shared.Truncate(line, maxLen))
 		rows = append(rows, row)
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, rows...)
+}
+
+func (m Model) renderDetailsPanel(item plex.Video, width int, height int) string {
+	if width < 20 {
+		return ""
+	}
+
+	title := shared.StyleHighlight.Render(item.Title)
+	subtitle := ""
+	if item.Type == "episode" {
+		subtitle = fmt.Sprintf("%s • S%02dE%02d", item.GrandparentTitle, item.ParentIndex, item.Index)
+	} else if item.Year > 0 {
+		subtitle = fmt.Sprintf("%d", item.Year)
+	}
+
+	prog := "Ready to play"
+	if item.ViewOffset > 0 && item.Duration > 0 {
+		percent := int((float64(item.ViewOffset) / float64(item.Duration)) * 100)
+		prog = fmt.Sprintf("%d%% watched", percent)
+	}
+
+	summary := item.Summary
+	if summary == "" {
+		summary = "No summary available."
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		shared.StyleDim.Render(subtitle),
+		"",
+		shared.StyleSecondary.Render(prog),
+		"",
+		lipgloss.NewStyle().Width(width-4).Foreground(lipgloss.Color("#cccccc")).Render(summary),
+	)
+
+	panel := lipgloss.NewStyle().
+		Width(width).
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(lipgloss.Color("#333333")).
+		Padding(0, 2).
+		Render(content)
+
+	if height > 0 {
+		return lipgloss.NewStyle().Height(height).Render(panel)
+	}
+	return panel
 }

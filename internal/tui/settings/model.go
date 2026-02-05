@@ -2,45 +2,13 @@ package settings
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Waddenn/plex-client/internal/config"
 	"github.com/Waddenn/plex-client/internal/tui/shared"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
-
-type Model struct {
-	cfg    *config.Config
-	cursor int
-	width  int
-	height int
-
-	// Options for select lists
-	voOptions    []string
-	hwdecOptions []string
-	tmOptions    []string
-	subLangs     []string
-	audioLangs   []string
-}
-
-func NewModel(cfg *config.Config) Model {
-	return Model{
-		cfg:          cfg,
-		voOptions:    []string{"auto", "gpu", "gpu-next", "x11", "xv"},
-		hwdecOptions: []string{"auto", "auto-safe", "vaapi", "nvdec", "vdpau", "no"},
-		tmOptions:    []string{"auto", "st2094-10", "mobius", "spline", "bt.2446a", "clip"},
-		subLangs:     []string{"auto", "eng", "fra", "spa", "deu", "ita", "jpn"},
-		audioLangs:   []string{"auto", "eng", "fra", "spa", "deu", "ita", "jpn"},
-	}
-}
-
-func (m Model) Init() tea.Cmd {
-	return nil
-}
-
-type MsgConfigChanged struct {
-	Config *config.Config
-}
 
 const (
 	SettingUseCPU = iota
@@ -54,25 +22,55 @@ const (
 	settingCount
 )
 
+type MsgConfigChanged struct {
+	Config *config.Config
+}
+
+type Model struct {
+	cfg    *config.Config
+	cursor int
+	width  int
+	height int
+}
+
+func NewModel(cfg *config.Config) Model {
+	return Model{
+		cfg: cfg,
+	}
+}
+
+func (m Model) Init() tea.Cmd {
+	return nil
+}
+
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
 
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+			} else {
+				m.cursor = settingCount - 1
 			}
 		case "down", "j":
 			if m.cursor < settingCount-1 {
 				m.cursor++
+			} else {
+				m.cursor = 0
 			}
-		case "left", "h", "right", "l", "enter", " ":
-			return m.handleInput(msg)
-		case "esc", "backspace", "q":
+
+		case "left", "h":
+			return m, m.changeSetting(-1)
+		case "right", "l", "enter":
+			return m, m.changeSetting(1)
+
+		case "esc", "q", "backspace":
 			return m, func() tea.Msg { return shared.MsgBack{} }
 		}
 	}
@@ -80,106 +78,129 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleInput(msg tea.KeyMsg) (Model, tea.Cmd) {
-	save := false
-	key := msg.String()
-
+func (m Model) changeSetting(delta int) tea.Cmd {
 	switch m.cursor {
 	case SettingUseCPU:
-		if key == "enter" || key == " " || key == "left" || key == "right" || key == "h" || key == "l" {
-			m.cfg.Player.UseCPU = !m.cfg.Player.UseCPU
-			save = true
-		}
+		m.cfg.Player.UseCPU = !m.cfg.Player.UseCPU
 	case SettingHWDec:
-		m.cfg.Player.HWDec = rotateOption(m.cfg.Player.HWDec, m.hwdecOptions, key)
-		save = true
+		options := []string{"auto", "vaapi", "nvdec", "vdpau", "auto-safe", "no"}
+		m.cfg.Player.HWDec = rotate(m.cfg.Player.HWDec, options, delta)
 	case SettingVO:
-		m.cfg.Player.VO = rotateOption(m.cfg.Player.VO, m.voOptions, key)
-		save = true
+		options := []string{"auto", "gpu-next", "gpu", "x11", "xv"}
+		m.cfg.Player.VO = rotate(m.cfg.Player.VO, options, delta)
 	case SettingToneMapping:
-		m.cfg.Player.ToneMapping = rotateOption(m.cfg.Player.ToneMapping, m.tmOptions, key)
-		save = true
+		options := []string{"auto", "st2094-10", "mobius", "spline", "bt.2446a", "clip"}
+		m.cfg.Player.ToneMapping = rotate(m.cfg.Player.ToneMapping, options, delta)
 	case SettingSubtitles:
-		if key == "enter" || key == " " || key == "left" || key == "right" || key == "h" || key == "l" {
-			m.cfg.Player.SubtitlesEnabled = !m.cfg.Player.SubtitlesEnabled
-			save = true
-		}
+		m.cfg.Player.SubtitlesEnabled = !m.cfg.Player.SubtitlesEnabled
 	case SettingSubLang:
-		m.cfg.Player.SubtitlesLang = rotateOption(defaultAuto(m.cfg.Player.SubtitlesLang), m.subLangs, key)
-		save = true
+		langs := []string{"auto", "eng", "fra", "ger", "spa", "ita"}
+		m.cfg.Player.SubtitlesLang = rotate(m.cfg.Player.SubtitlesLang, langs, delta)
 	case SettingAudioLang:
-		m.cfg.Player.AudioLang = rotateOption(defaultAuto(m.cfg.Player.AudioLang), m.audioLangs, key)
-		save = true
+		langs := []string{"auto", "eng", "fra", "ger", "spa", "ita"}
+		m.cfg.Player.AudioLang = rotate(m.cfg.Player.AudioLang, langs, delta)
 	case SettingIcons:
-		if key == "enter" || key == " " || key == "left" || key == "right" || key == "h" || key == "l" {
-			m.cfg.UI.UseIcons = !m.cfg.UI.UseIcons
-			save = true
-		}
+		m.cfg.UI.UseIcons = !m.cfg.UI.UseIcons
 	}
 
-	if save {
-		config.Save(m.cfg)
-		return m, func() tea.Msg { return MsgConfigChanged{Config: m.cfg} }
-	}
-
-	return m, nil
+	config.Save(m.cfg)
+	return func() tea.Msg { return MsgConfigChanged{Config: m.cfg} }
 }
 
-func rotateOption(current string, options []string, key string) string {
+func rotate(current string, options []string, delta int) string {
 	idx := -1
-	for i, o := range options {
-		if o == current {
+	for i, opt := range options {
+		if opt == current {
 			idx = i
 			break
 		}
 	}
 
 	if idx == -1 {
-		idx = 0
+		return options[0]
 	}
 
-	if key == "right" || key == "l" || key == "enter" || key == " " {
-		idx = (idx + 1) % len(options)
-	} else if key == "left" || key == "h" {
-		idx = (idx - 1 + len(options)) % len(options)
+	newIdx := (idx + delta) % len(options)
+	if newIdx < 0 {
+		newIdx += len(options)
 	}
-
-	return options[idx]
+	return options[newIdx]
 }
 
 func (m Model) View() string {
-	title := shared.StyleTitle.Render("⚙️ Settings")
+	width := m.width
+	if width < 20 {
+		width = 20
+	}
+	height := m.height
+	if height < 10 {
+		height = 10
+	}
+
+	// 1. Render Header
+	header := shared.StyleHeader.Copy().Width(width).Render("⚙️ Settings")
+	headerHeight := lipgloss.Height(header)
+
+	// 2. Render Footer
+	footerHelp := "[esc/q/backspace] Back • [↑/↓] Navigate • [←/→/enter] Change"
+	space := width - lipgloss.Width(footerHelp) - 2
+	footerContent := footerHelp
+	if space > 0 {
+		footerContent = strings.Repeat(" ", space) + footerHelp
+	}
+	footer := shared.StyleFooter.Copy().Width(width).Render(footerContent)
+	footerHeight := lipgloss.Height(footer)
+	bodyHeight := height - headerHeight - footerHeight
+	if bodyHeight < 3 {
+		bodyHeight = 3
+	}
 
 	settings := []string{
-		m.renderToggle("Use CPU (Software Decoding)", m.cfg.Player.UseCPU, m.cursor == SettingUseCPU),
+		m.renderToggle("Use CPU", "Software Decoding", m.cfg.Player.UseCPU, m.cursor == SettingUseCPU, width),
 		m.renderChoice("Hardware Decoding", m.cfg.Player.HWDec, m.cursor == SettingHWDec),
-		m.renderChoice("Video Output (VO)", m.cfg.Player.VO, m.cursor == SettingVO),
+		m.renderChoice("Video Output", m.cfg.Player.VO, m.cursor == SettingVO),
 		m.renderChoice("HDR Tone Mapping", m.cfg.Player.ToneMapping, m.cursor == SettingToneMapping),
-		m.renderToggle("Subtitles Enabled", m.cfg.Player.SubtitlesEnabled, m.cursor == SettingSubtitles),
+		m.renderToggle("Subtitles", "Enabled", m.cfg.Player.SubtitlesEnabled, m.cursor == SettingSubtitles, width),
 		m.renderChoice("Subtitles Language", defaultAuto(m.cfg.Player.SubtitlesLang), m.cursor == SettingSubLang),
 		m.renderChoice("Audio Language", defaultAuto(m.cfg.Player.AudioLang), m.cursor == SettingAudioLang),
-		m.renderToggle("Use Icons in UI", m.cfg.UI.UseIcons, m.cursor == SettingIcons),
+		m.renderToggle("UI Icons", "Use icons in menus", m.cfg.UI.UseIcons, m.cursor == SettingIcons, width),
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, settings...)
 
-	tip := m.renderTip()
+	// Ensure main body has a fixed height by using a container
+	bodyContainer := lipgloss.NewStyle().Height(bodyHeight)
 
-	footer := shared.StyleDim.Render("\n[esc/q] Back • [↑/↓] Navigate • [←/→/enter] Change")
+	if width > 70 {
+		leftWidth := int(float64(width) * 0.55)
+		if leftWidth < 38 {
+			leftWidth = 38
+		}
+		rightWidth := width - leftWidth
 
-	main := lipgloss.JoinVertical(lipgloss.Left,
-		title,
-		"",
-		content,
-		"",
-		tip,
-		footer,
-	)
+		left := lipgloss.NewStyle().Width(leftWidth).Render(content)
+		right := m.renderTipPanel(rightWidth, bodyHeight)
 
-	return shared.StyleBorder.Render(main)
+		main := bodyContainer.Render(lipgloss.JoinHorizontal(lipgloss.Top, left, right))
+		return lipgloss.JoinVertical(lipgloss.Left, header, main, footer)
+	}
+
+	main := bodyContainer.Render(lipgloss.JoinVertical(lipgloss.Left, content, "", m.renderTip(width-2)))
+	return lipgloss.JoinVertical(lipgloss.Left, header, main, footer)
 }
 
-func (m Model) renderTip() string {
+func (m Model) renderTipPanel(width int, height int) string {
+	tip := m.renderTip(width - 3)
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(lipgloss.Color("#333333")).
+		PaddingLeft(2).
+		Render(tip)
+}
+
+func (m Model) renderTip(width int) string {
 	var tip string
 	switch m.cursor {
 	case SettingUseCPU:
@@ -237,47 +258,65 @@ func (m Model) renderTip() string {
 		tip = "Show icons (🎬, 📺) next to library names in the sidebar."
 	}
 
-	return lipgloss.NewStyle().
+	// Ensure the tip text is truncated to fit the width (minus padding for multi-line)
+	maxTipLen := width - 2
+	if maxTipLen < 10 {
+		maxTipLen = 10
+	}
+
+	style := lipgloss.NewStyle().
 		Foreground(shared.ColorLightGrey).
-		Italic(true).
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(shared.ColorPlexOrange).
-		PaddingLeft(2).
-		Width(60).
-		Render("💡 Tip: " + tip)
+		Italic(true)
+
+	// We handle multi-line manually to avoid lipgloss wrapping issues in small spaces
+	return "💡 Tip:\n" + style.Render(shared.Truncate(tip, maxTipLen*2)) // Allow 2 lines worth of text
 }
 
-func (m Model) renderToggle(label string, value bool, active bool) string {
-	style := shared.StyleItemNormal
+func (m Model) renderToggle(label string, hint string, value bool, active bool, width int) string {
 	prefix := "  "
+	style := shared.StyleItemNormal
+	valStyle := shared.StyleHighlight
+
 	if active {
 		style = shared.StyleItemActive
-		prefix = "▶ "
+		prefix = "> "
+		// High contrast for active selection: black text on orange background
+		valStyle = lipgloss.NewStyle().Foreground(shared.ColorBlack).Bold(true)
 	}
 
 	valStr := "OFF"
-	valStyle := shared.StyleDim
 	if value {
 		valStr = "ON"
-		valStyle = shared.StyleHighlight
 	}
 
-	return style.Render(fmt.Sprintf("%s%-30s %s", prefix, label, valStyle.Render(valStr)))
+	labelWidth := 28
+	labelText := label
+	if hint != "" {
+		labelText = fmt.Sprintf("%s (%s)", label, hint)
+	}
+
+	line := fmt.Sprintf("%s%-*s %s", prefix, labelWidth, shared.Truncate(labelText, labelWidth), valStyle.Render(valStr))
+	return style.Copy().Width(width).MaxHeight(1).Render(line)
 }
 
 func (m Model) renderChoice(label string, value string, active bool) string {
-	style := shared.StyleItemNormal
 	prefix := "  "
+	style := shared.StyleItemNormal
+	valStyle := shared.StyleHighlight
+
 	if active {
 		style = shared.StyleItemActive
-		prefix = "▶ "
+		prefix = "> "
+		// High contrast for active selection
+		valStyle = lipgloss.NewStyle().Foreground(shared.ColorBlack).Bold(true)
 	}
 
 	if value == "" {
 		value = "auto"
 	}
 
-	return style.Render(fmt.Sprintf("%s%-30s %s", prefix, label, shared.StyleHighlight.Render(value)))
+	line := fmt.Sprintf("%s%-28s %s", prefix, shared.Truncate(label, 28), valStyle.Render(value))
+	return style.Copy().MaxHeight(1).Render(line)
 }
 
 func defaultAuto(value string) string {
