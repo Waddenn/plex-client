@@ -8,7 +8,7 @@ A minimalist Plex client that uses MPV and FZF for command-line navigation.
 - TOML configuration with sensible defaults
 - Includes a `flake.nix` for seamless NixOS integration
 
-<img src="https://github.com/user-attachments/assets/694828be-ce7a-46dd-bbfc-ad7f1af74b84" alt="screenshot" width="800"/>
+<img src="https://github.com/user-attachments/assets/694828be-ce7a-46dd-bbfc-ad7f1af74b84" alt="screenshot" width="1000"/>
 
 ---
 
