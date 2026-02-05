@@ -35,7 +35,7 @@ type MainModel struct {
 }
 
 func NewModel(db *sql.DB, cfg *config.Config, p *plex.Client) MainModel {
-	bm := browser.NewModel(p)
+	bm := browser.NewModel(p, db)
 	return MainModel{
 		cfg:         cfg,
 		db:          db,

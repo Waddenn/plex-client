@@ -19,7 +19,7 @@ func Open() (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if err := initSchema(db); err != nil {
 		db.Close()
 		return nil, err
@@ -55,6 +55,9 @@ func initSchema(db *sql.DB) error {
             rating REAL,
             genres TEXT,
             originallyAvailableAt TEXT,
+            content_rating TEXT,
+            studio TEXT,
+            added_at INTEGER,
             updated_at INTEGER
         );`,
 		`CREATE INDEX IF NOT EXISTS idx_films_title ON films(title);`,
@@ -66,6 +69,9 @@ func initSchema(db *sql.DB) error {
             summary TEXT,
             rating REAL,
             genres TEXT,
+            content_rating TEXT,
+            studio TEXT,
+            added_at INTEGER,
             updated_at INTEGER
         );`,
 		`CREATE INDEX IF NOT EXISTS idx_series_title ON series(title);`,
