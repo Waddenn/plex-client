@@ -35,7 +35,7 @@
         version = "0.1.0";
         src = pkgs.lib.cleanSource ./.; # Exclude .git, result, etc.
 
-        vendorHash = "sha256-Fpf+nL5yl4222ugWZfTQI88NHCu/t3orDnulNkPHuK4=";
+        vendorHash = "sha256-fuWp7B6gVfoya9lmZOvHgKSlYkhB1tXOLMl4oLQIixk=";
 
 
         # Skip tests during build for faster compilation
