@@ -23,8 +23,8 @@ func (m *MockPlexClient) GetSections() ([]plex.Directory, error) {
 	return m.Sections, nil
 }
 
-func (m *MockPlexClient) GetSectionAll(key string) ([]plex.Video, error) {
-	return m.Videos[key], nil
+func (m *MockPlexClient) GetSectionAll(key string) ([]plex.Directory, []plex.Video, error) {
+	return nil, m.Videos[key], nil
 }
 
 func (m *MockPlexClient) GetSectionDirs(key string) ([]plex.Directory, error) {
