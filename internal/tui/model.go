@@ -10,6 +10,7 @@ import (
 	"github.com/Waddenn/plex-client/internal/plex"
 	"github.com/Waddenn/plex-client/internal/tui/browser"
 	"github.com/Waddenn/plex-client/internal/tui/dashboard"
+	"github.com/Waddenn/plex-client/internal/tui/login"
 	"github.com/Waddenn/plex-client/internal/tui/settings"
 	"github.com/Waddenn/plex-client/internal/tui/shared"
 	tea "github.com/charmbracelet/bubbletea"
@@ -27,6 +28,7 @@ type MainModel struct {
 	currentView shared.View
 
 	// Sub-models
+	login     login.Model
 	dashboard dashboard.Model
 	browser   *browser.Model
 	settings  settings.Model
@@ -39,11 +41,18 @@ type MainModel struct {
 
 func NewModel(db *sql.DB, cfg *config.Config, p *plex.Client) MainModel {
 	bm := browser.NewModel(p, db)
+
+	initialView := shared.ViewDashboard
+	if cfg.Plex.Token == "" {
+		initialView = shared.ViewLogin
+	}
+
 	return MainModel{
 		cfg:         cfg,
 		db:          db,
 		plexClient:  p,
-		currentView: shared.ViewDashboard,
+		currentView: initialView,
+		login:       login.NewModel(cfg),
 		dashboard:   dashboard.NewModel(p),
 		browser:     &bm,
 		settings:    settings.NewModel(cfg),
@@ -51,6 +60,9 @@ func NewModel(db *sql.DB, cfg *config.Config, p *plex.Client) MainModel {
 }
 
 func (m *MainModel) Init() tea.Cmd {
+	if m.currentView == shared.ViewLogin {
+		return m.login.Init()
+	}
 	return m.dashboard.Init()
 }
 
@@ -85,6 +97,8 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Propagate window size to ALL submodels
 	if _, ok := msg.(tea.WindowSizeMsg); ok {
 		m.dashboard, _ = m.dashboard.Update(msg)
+		newLogin, _ := m.login.Update(msg)
+		m.login = newLogin.(login.Model)
 		cmd = m.browser.Update(msg)
 		return m, cmd
 	}
@@ -193,10 +207,28 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case settings.MsgConfigChanged:
 		m.cfg = msg.Config
 		return m, nil
+
+	case login.MsgLoginSuccess:
+		m.cfg = msg.Config
+		// Re-init plex client with new token/url
+		m.plexClient = plex.New(m.cfg.Plex.BaseURL, m.cfg.Plex.Token, "plex-client-go-tui")
+
+		// Update submodels
+		bm := browser.NewModel(m.plexClient, m.db)
+		m.browser = &bm
+		m.dashboard = dashboard.NewModel(m.plexClient)
+
+		// Switch to dashboard
+		m.currentView = shared.ViewDashboard
+		return m, m.dashboard.Init()
 	}
 
 	// Update active submodel
 	switch m.currentView {
+	case shared.ViewLogin:
+		newModel, newCmd := m.login.Update(msg)
+		m.login = newModel.(login.Model)
+		cmd = newCmd
 	case shared.ViewDashboard:
 		newModel, newCmd := m.dashboard.Update(msg)
 		m.dashboard = newModel
@@ -253,6 +285,8 @@ func (m MainModel) playCurrentQueueItem() tea.Cmd {
 
 func (m *MainModel) View() string {
 	switch m.currentView {
+	case shared.ViewLogin:
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.login.View())
 	case shared.ViewDashboard:
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.dashboard.View())
 	case shared.ViewMovieBrowser, shared.ViewSeriesBrowser:
