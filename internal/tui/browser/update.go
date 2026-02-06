@@ -10,7 +10,6 @@ import (
 )
 
 func (m *Model) Update(msg tea.Msg) tea.Cmd {
-	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -78,15 +77,22 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 				return func() tea.Msg { return shared.MsgBack{} }
 			}
 
+		case "r":
+			if !m.showSearch {
+				return func() tea.Msg { return shared.MsgManualSync{} }
+			}
+
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
 			}
+			return nil
 		case "down", "j":
 			count := m.getFilteredCount()
 			if m.cursor < count-1 {
 				m.cursor++
 			}
+			return nil
 		case "esc", "backspace":
 			if m.showSearch {
 				m.showSearch = false
@@ -150,14 +156,19 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 						m.needsRefresh = true
 						m.filteredList = nil
 
+						// Clear previous items to avoid relics if cache is empty
+						m.items = nil
+
 						// Instant load from DB
-						var cmds []tea.Cmd
 						if dbItems, err := fetchLibraryItemsFromStore(m.store, m.targetType); err == nil && len(dbItems) > 0 {
 							m.items = dbItems
 							m.loading = false // Hide loader if we have data
 						}
-						cmds = append(cmds, fetchLibraryItems(m.plexClient, item.Key))
-						return tea.Batch(cmds...)
+						if m.AutoSync {
+							return fetchLibraryItems(m.plexClient, item.Key)
+						}
+						m.loading = false
+						return nil
 					} else if m.mode == ModeSeasons {
 						m.mode = ModeEpisodes
 						m.loading = true
@@ -166,7 +177,20 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 						m.textInput.Reset()
 						m.needsRefresh = true
 						m.filteredList = nil
-						return fetchChildren(m.plexClient, item.RatingKey)
+
+						// Clear previous episodes
+						m.episodes = nil
+
+						// Instant load from DB
+						if dbEpisodes, err := fetchEpisodesFromStore(m.store, item.RatingKey); err == nil && len(dbEpisodes) > 0 {
+							m.episodes = dbEpisodes
+							m.loading = false
+						}
+						if m.AutoSync {
+							return fetchChildren(m.plexClient, item.RatingKey)
+						}
+						m.loading = false
+						return nil
 					}
 				case plex.Video: // Item or Episode
 					if m.mode == ModeItems {
@@ -179,7 +203,20 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 							m.textInput.Reset()
 							m.needsRefresh = true
 							m.filteredList = nil
-							return fetchChildren(m.plexClient, item.RatingKey)
+
+							// Clear previous seasons
+							m.seasons = nil
+
+							// Instant load from DB
+							if dbSeasons, err := fetchSeasonsFromStore(m.store, item.RatingKey); err == nil && len(dbSeasons) > 0 {
+								m.seasons = dbSeasons
+								m.loading = false
+							}
+							if m.AutoSync {
+								return fetchChildren(m.plexClient, item.RatingKey)
+							}
+							m.loading = false
+							return nil
 						}
 						return func() tea.Msg { return shared.MsgPlayVideo{Video: item} }
 					} else if m.mode == ModeEpisodes {
@@ -197,6 +234,10 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		} else {
 			m.sections = msg.Sections
 			m.errorMsg = "" // Clear any previous error
+
+			// Background Update Store
+			syncCmd := saveSectionsInBackground(m.store.DB, m.sections)
+
 			// UX Improvement: If only one section, auto-select it
 			if len(m.sections) == 1 {
 				section := m.sections[0]
@@ -205,14 +246,16 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 				m.needsRefresh = true
 				m.filteredList = nil
 
-				var cmds []tea.Cmd
+				// Clear previous items
+				m.items = nil
+
 				if dbItems, err := fetchLibraryItemsFromStore(m.store, m.targetType); err == nil && len(dbItems) > 0 {
 					m.items = dbItems
 					m.loading = false
 				}
-				cmds = append(cmds, fetchLibraryItems(m.plexClient, section.Key))
-				return tea.Batch(cmds...)
+				return tea.Batch(syncCmd, fetchLibraryItems(m.plexClient, section.Key))
 			}
+			return syncCmd
 		}
 	case MsgItemsLoaded:
 		m.loading = false
@@ -246,6 +289,8 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			} else {
 				m.items = msg.Items
 			}
+			// Background Update Store
+			return saveItemsInBackground(m.store.DB, m.items, m.targetType)
 		}
 	case MsgChildrenLoaded:
 		m.loading = false
@@ -258,6 +303,9 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			m.seasons = msg.Dirs
 			m.episodes = msg.Videos
 
+			// Background Update Store
+			syncCmd := saveChildrenInBackground(m.store.DB, msg.ParentID, m.seasons, m.episodes)
+
 			// Auto-Switch Logic:
 			if m.mode == ModeSeasons {
 				if len(m.seasons) == 0 && len(m.episodes) > 0 {
@@ -265,8 +313,11 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 					m.filteredList = nil
 				}
 			}
+			return syncCmd
 		}
+	case MsgBackgroundSyncFinished:
+		// Silently ignore or maybe show a tiny indicator if Added > 0
+		return nil
 	}
-
-	return cmd
+	return nil
 }

@@ -26,6 +26,9 @@ type Model struct {
 
 	// contentCursor: 0 = Hero, 1+ = List items
 	contentCursor int
+
+	// Sync State
+	SyncStatus string
 }
 
 func NewModel(p *plex.Client) Model {
@@ -162,6 +165,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 		case "q", "esc":
 			return m, func() tea.Msg { return shared.MsgBack{} }
+
+		case "r":
+			return m, func() tea.Msg { return shared.MsgManualSync{} }
 		}
 
 	case MsgOnDeckLoaded:
@@ -172,6 +178,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.onDeck = msg.Items
 			m.errorMsg = "" // Clear any previous error
 		}
+
+	case shared.MsgSyncProgress:
+		// We'll let MainModel handle the animation, but we need to store the raw status or count if needed.
+		// Actually, we'll just use the SyncStatus string passed to us.
 	}
 	return m, nil
 }
@@ -195,7 +205,11 @@ func (m *Model) View() string {
 	availableWidth := shared.ClampMin(m.width, 20)
 	availableHeight := shared.ClampMin(m.height, 10)
 	// --- 2. Render Header ---
-	header, headerHeight := shared.RenderHeaderLegacySafe("📂 Plex CLI", availableWidth)
+	title := "📂 Plex CLI"
+	if m.SyncStatus != "" {
+		title = fmt.Sprintf("📂 Plex CLI  %s", m.SyncStatus)
+	}
+	header, headerHeight := shared.RenderHeaderLegacySafe(title, availableWidth)
 
 	// --- 3. Render Footer ---
 	help := "[←/→] Focus • [↑/↓] Navigate • [Enter] Open • [Q/Esc] Quit"

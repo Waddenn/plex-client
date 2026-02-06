@@ -11,9 +11,9 @@ func fetchLibraryItems(p *plex.Client, key string) tea.Cmd {
 	return func() tea.Msg {
 		dirs, videos, err := p.GetSectionAll(key)
 		if err != nil {
-			return MsgItemsLoaded{Err: err}
+			return MsgItemsLoaded{SectionKey: key, Err: err}
 		}
-		return MsgItemsLoaded{Items: videos, Dirs: dirs}
+		return MsgItemsLoaded{SectionKey: key, Items: videos, Dirs: dirs}
 	}
 }
 
@@ -21,9 +21,9 @@ func fetchChildren(p *plex.Client, key string) tea.Cmd {
 	return func() tea.Msg {
 		dirs, vids, err := p.GetChildren(key)
 		if err != nil {
-			return MsgChildrenLoaded{Err: err}
+			return MsgChildrenLoaded{ParentID: key, Err: err}
 		}
-		return MsgChildrenLoaded{Dirs: dirs, Videos: vids}
+		return MsgChildrenLoaded{ParentID: key, Dirs: dirs, Videos: vids}
 	}
 }
 
@@ -48,4 +48,16 @@ func fetchLibraryItemsFromStore(s *store.Store, targetType string) ([]plex.Video
 		return s.ListMovies()
 	}
 	return s.ListSeries()
+}
+
+func fetchSectionsFromStore(s *store.Store, targetType string) ([]plex.Directory, error) {
+	return s.ListSections(targetType)
+}
+
+func fetchSeasonsFromStore(s *store.Store, seriesID string) ([]plex.Directory, error) {
+	return s.ListSeasons(seriesID)
+}
+
+func fetchEpisodesFromStore(s *store.Store, seasonID string) ([]plex.Video, error) {
+	return s.ListEpisodes(seasonID)
 }

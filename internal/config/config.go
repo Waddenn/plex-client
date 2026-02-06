@@ -36,9 +36,10 @@ type PlayerConfig struct {
 }
 
 type UIConfig struct {
-	ShowPreview bool   `toml:"show_preview"`
-	SortBy      string `toml:"sort_by"`
-	UseIcons    bool   `toml:"use_icons"`
+	ShowPreview          bool   `toml:"show_preview"`
+	SortBy               string `toml:"sort_by"`
+	UseIcons             bool   `toml:"use_icons"`
+	StatusIndicatorStyle string `toml:"status_indicator_style"`
 }
 
 type SyncConfig struct {
@@ -62,9 +63,10 @@ func Defaults() *Config {
 			AudioLang:        "eng",
 		},
 		UI: UIConfig{
-			ShowPreview: true,
-			SortBy:      "title",
-			UseIcons:    true,
+			ShowPreview:          true,
+			SortBy:               "title",
+			UseIcons:             true,
+			StatusIndicatorStyle: "badges",
 		},
 		Sync: SyncConfig{
 			AutoSync:                  true,

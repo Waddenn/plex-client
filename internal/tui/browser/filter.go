@@ -53,8 +53,7 @@ func filterAndSortVideos(videos []plex.Video, filter string, sortMethod SortMeth
 			match = true
 		} else {
 			lowTitle := strings.ToLower(v.Title)
-			lowSummary := strings.ToLower(v.Summary)
-			if strings.Contains(lowTitle, filter) || strings.Contains(lowSummary, filter) {
+			if strings.Contains(lowTitle, filter) {
 				match = true
 			} else {
 				// Also search in director names
