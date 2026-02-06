@@ -86,6 +86,7 @@ type Video struct {
 	Writer                []Tag   `xml:"Writer"`
 	Role                  []Role  `xml:"Role"`
 	AddedAt               int64   `xml:"addedAt,attr"`
+	UpdatedAt             int64   `xml:"updatedAt,attr"`
 }
 
 type Media struct {

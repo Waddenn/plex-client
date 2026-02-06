@@ -9,13 +9,15 @@ type MsgSectionsLoaded struct {
 }
 
 type MsgItemsLoaded struct {
-	Items []plex.Video
-	Dirs  []plex.Directory
-	Err   error
+	SectionKey string
+	Items      []plex.Video
+	Dirs       []plex.Directory
+	Err        error
 }
 
 type MsgChildrenLoaded struct {
-	Dirs   []plex.Directory
-	Videos []plex.Video
-	Err    error
+	ParentID string
+	Dirs     []plex.Directory
+	Videos   []plex.Video
+	Err      error
 }

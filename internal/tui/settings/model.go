@@ -18,6 +18,8 @@ const (
 	SettingSubLang
 	SettingAudioLang
 	SettingIcons
+	SettingStatusIndicator
+	SettingAutoSync
 	settingCount
 )
 
@@ -30,6 +32,9 @@ type Model struct {
 	cursor int
 	width  int
 	height int
+
+	// Sync State
+	SyncStatus string
 }
 
 func NewModel(cfg *config.Config) Model {
@@ -100,6 +105,11 @@ func (m Model) changeSetting(delta int) tea.Cmd {
 		m.cfg.Player.AudioLang = rotate(m.cfg.Player.AudioLang, langs, delta)
 	case SettingIcons:
 		m.cfg.UI.UseIcons = !m.cfg.UI.UseIcons
+	case SettingStatusIndicator:
+		options := []string{"badges", "sidebar", "text-style", "dots"}
+		m.cfg.UI.StatusIndicatorStyle = rotate(m.cfg.UI.StatusIndicatorStyle, options, delta)
+	case SettingAutoSync:
+		m.cfg.Sync.AutoSync = !m.cfg.Sync.AutoSync
 	}
 
 	config.Save(m.cfg)
@@ -131,7 +141,11 @@ func (m Model) View() string {
 	height := shared.ClampMin(m.height, 10)
 
 	// 1. Render Header
-	header, headerHeight := shared.RenderHeaderLegacySafe("📂 Plex CLI > Settings", width)
+	title := "📂 Plex CLI > Settings"
+	if m.SyncStatus != "" {
+		title = fmt.Sprintf("📂 Plex CLI > Settings  %s", m.SyncStatus)
+	}
+	header, headerHeight := shared.RenderHeaderLegacySafe(title, width)
 
 	// 2. Render Footer
 	footerHelp := "[esc/q/backspace] Back • [↑/↓] Navigate • [←/→/enter] Change"
@@ -162,6 +176,8 @@ func (m Model) View() string {
 			m.renderChoice("Subtitles Language", defaultAuto(m.cfg.Player.SubtitlesLang), m.cursor == SettingSubLang, leftWidth),
 			m.renderChoice("Audio Language", defaultAuto(m.cfg.Player.AudioLang), m.cursor == SettingAudioLang, leftWidth),
 			m.renderToggle("UI Icons", "Use icons in menus", m.cfg.UI.UseIcons, m.cursor == SettingIcons, leftWidth),
+			m.renderChoice("Status Indicator", defaultAuto(m.cfg.UI.StatusIndicatorStyle), m.cursor == SettingStatusIndicator, leftWidth),
+			m.renderToggle("Background Sync", "Auto update library", m.cfg.Sync.AutoSync, m.cursor == SettingAutoSync, leftWidth),
 		}
 		content := lipgloss.JoinVertical(lipgloss.Left, settings...)
 
@@ -181,6 +197,8 @@ func (m Model) View() string {
 		m.renderChoice("Subtitles Language", defaultAuto(m.cfg.Player.SubtitlesLang), m.cursor == SettingSubLang, width),
 		m.renderChoice("Audio Language", defaultAuto(m.cfg.Player.AudioLang), m.cursor == SettingAudioLang, width),
 		m.renderToggle("UI Icons", "Use icons in menus", m.cfg.UI.UseIcons, m.cursor == SettingIcons, width),
+		m.renderChoice("Status Indicator", defaultAuto(m.cfg.UI.StatusIndicatorStyle), m.cursor == SettingStatusIndicator, width),
+		m.renderToggle("Background Sync", "Auto update library", m.cfg.Sync.AutoSync, m.cursor == SettingAutoSync, width),
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, settings...)
 
@@ -254,6 +272,21 @@ func (m Model) renderTip(width int) string {
 		tip = "Preferred audio language. Use auto to let MPV decide."
 	case SettingIcons:
 		tip = "Show icons (🎬, 📺) next to library names in the sidebar."
+	case SettingStatusIndicator:
+		switch m.cfg.UI.StatusIndicatorStyle {
+		case "badges":
+			tip = "Display watch status as colored badges: [WATCHED] and [45%] for in-progress items."
+		case "sidebar":
+			tip = "Show a colored bar on the left: green for watched, orange for in-progress."
+		case "text-style":
+			tip = "Use text styling: dim/gray for watched items, orange for in-progress."
+		case "dots":
+			tip = "Use Unicode symbols: ● (watched), ◐ (in-progress), ○ (unwatched)."
+		default:
+			tip = "Choose how to display the watch status of movies and episodes."
+		}
+	case SettingAutoSync:
+		tip = "Enables automatic library synchronization in the background. Disable to use manual sync or avoid background traffic."
 	}
 
 	// Ensure the tip text is truncated to fit the width (minus padding for multi-line)

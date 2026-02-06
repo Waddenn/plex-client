@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/Waddenn/plex-client/internal/appinfo"
 	"github.com/Waddenn/plex-client/internal/cache"
@@ -12,6 +13,7 @@ import (
 	"github.com/Waddenn/plex-client/internal/db"
 	"github.com/Waddenn/plex-client/internal/plex"
 	"github.com/Waddenn/plex-client/internal/tui"
+	"github.com/Waddenn/plex-client/internal/tui/shared"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -78,22 +80,33 @@ func main() {
 	// Only attempt sync if we are authenticated
 	if cfg.Plex.Token != "" {
 		if !hasData || forceSyncFlag {
-			fmt.Println("🚀 Syncing library for the first time... This might take a while.")
-			if err := cache.Sync(p, d, forceSyncFlag); err != nil {
+			fmt.Println("Syncing library for the first time... This might take a while.")
+			if err := cache.Sync(p, d, forceSyncFlag, func(s string, a int) {
+				// No console output for initial sync progress, TUI will handle it
+			}); err != nil {
 				log.Printf("Sync error: %v", err)
 			}
-		} else if cfg.Sync.AutoSync {
-			// Background sync
-			go func() {
-				if err := cache.Sync(p, d, false); err != nil {
-					log.Printf("Background sync error: %v", err)
-				}
-			}()
+			fmt.Println("Done!")
 		}
 	}
 
 	m := tui.NewModel(d, cfg, p, info)
-	if _, err := tea.NewProgram(&m, tea.WithAltScreen()).Run(); err != nil {
+	program := tea.NewProgram(&m, tea.WithAltScreen())
+
+	// Pipe background sync to program
+	if cfg.Plex.Token != "" && !(!hasData || forceSyncFlag) && cfg.Sync.AutoSync {
+		go func() {
+			time.Sleep(1 * time.Second) // Give TUI time to start
+			if err := cache.Sync(p, d, false, func(s string, a int) {
+				program.Send(shared.MsgSyncProgress{Status: s, Added: a})
+			}); err != nil {
+				log.Printf("Background sync error: %v", err)
+			}
+			program.Send(shared.MsgSyncProgress{Done: true})
+		}()
+	}
+
+	if _, err := program.Run(); err != nil {
 		fmt.Printf("Error running TUI: %v\n", err)
 		os.Exit(1)
 	}

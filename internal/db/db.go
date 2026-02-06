@@ -15,7 +15,9 @@ func Open() (*sql.DB, error) {
 	}
 	dbPath := filepath.Join(cacheDir, "cache.db")
 
-	db, err := sql.Open("sqlite3", dbPath)
+	// Add busy timeout, WAL mode, and immediate transaction lock to connection string
+	dsn := dbPath + "?_busy_timeout=5000&_journal_mode=WAL&_txlock=immediate"
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -29,13 +31,6 @@ func Open() (*sql.DB, error) {
 }
 
 func initSchema(db *sql.DB) error {
-	// Enable Write-Ahead Logging for better concurrency
-	if _, err := db.Exec("PRAGMA journal_mode=WAL;"); err != nil {
-		return err
-	}
-	if _, err := db.Exec("PRAGMA synchronous=NORMAL;"); err != nil {
-		return err
-	}
 	if _, err := db.Exec("PRAGMA foreign_keys=ON;"); err != nil {
 		return err
 	}
@@ -64,7 +59,11 @@ func initSchema(db *sql.DB) error {
             content_rating TEXT,
             studio TEXT,
             added_at INTEGER,
-            updated_at INTEGER
+            updated_at INTEGER,
+            video_resolution TEXT,
+            video_codec TEXT,
+            audio_codec TEXT,
+            audio_channels INTEGER
         );`,
 		`CREATE INDEX IF NOT EXISTS idx_films_title ON films(title);`,
 		`CREATE INDEX IF NOT EXISTS idx_films_year ON films(year);`,
@@ -104,9 +103,19 @@ func initSchema(db *sql.DB) error {
             summary TEXT,
             rating REAL,
             updated_at INTEGER,
+            video_resolution TEXT,
+            video_codec TEXT,
+            audio_codec TEXT,
+            audio_channels INTEGER,
             FOREIGN KEY(season_id) REFERENCES seasons(id) ON DELETE CASCADE
         );`,
 		`CREATE INDEX IF NOT EXISTS idx_episodes_season_id ON episodes(season_id);`,
+		`CREATE TABLE IF NOT EXISTS sections (
+			key TEXT PRIMARY KEY,
+			title TEXT,
+			type TEXT,
+			updated_at INTEGER
+		);`,
 	}
 
 	for _, q := range queries {
@@ -221,6 +230,16 @@ func migrateSchema(db *sql.DB) error {
 				return err
 			}
 		}
+
+		hasAudioChannels, err := columnExists(tx, "films", "audio_channels")
+		if err != nil {
+			return err
+		}
+		if !hasAudioChannels {
+			if _, err := tx.Exec(`ALTER TABLE films ADD COLUMN audio_channels INTEGER;`); err != nil {
+				return err
+			}
+		}
 	}
 
 	// Add directors and cast columns to series table
@@ -245,6 +264,19 @@ func migrateSchema(db *sql.DB) error {
 		}
 		if !hasCast {
 			if _, err := tx.Exec(`ALTER TABLE series ADD COLUMN cast TEXT;`); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Add audio_channels column to episodes table
+	if hasEpisodes {
+		hasAudioChannels, err := columnExists(tx, "episodes", "audio_channels")
+		if err != nil {
+			return err
+		}
+		if !hasAudioChannels {
+			if _, err := tx.Exec(`ALTER TABLE episodes ADD COLUMN audio_channels INTEGER;`); err != nil {
 				return err
 			}
 		}

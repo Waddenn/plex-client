@@ -40,6 +40,9 @@ func (m *Model) View() string {
 		headerViewSource = fmt.Sprintf("🔍 %s", m.textInput.View())
 	} else {
 		headerViewSource = breadcrumb
+		if m.SyncStatus != "" {
+			headerViewSource += shared.StyleDim.Render("  " + m.SyncStatus)
+		}
 		if m.textInput.Value() != "" {
 			headerViewSource += shared.StyleDim.Render(fmt.Sprintf(" [Filter: %s]", m.textInput.Value()))
 		}
@@ -147,11 +150,20 @@ func (m *Model) View() string {
 			}
 
 			indicators := ""
+			sidebarIndicator := ""
+			textModified := false
 			if v, ok := item.(plex.Video); ok {
-				if v.ViewCount > 0 {
-					indicators = " " + shared.StyleMetadataValue.Render("✔")
-				} else if v.ViewOffset > 0 && v.Duration > 0 {
-					indicators = " " + shared.StyleMetadataValue.Render("⏱")
+				indicators, sidebarIndicator = m.renderStatusIndicator(v, listWidth)
+
+				// For text-style, we modify the line style instead of adding indicators
+				if m.StatusIndicatorStyle == "text-style" {
+					if v.ViewCount > 0 {
+						line = shared.StyleDim.Render(line)
+						textModified = true
+					} else if v.ViewOffset > 0 && v.Duration > 0 {
+						line = lipgloss.NewStyle().Foreground(shared.ColorPlexOrange).Render(line)
+						textModified = true
+					}
 				}
 			}
 
@@ -162,6 +174,17 @@ func (m *Model) View() string {
 					Bold(true).
 					Width(listWidth)
 				prefix = shared.SelectionIndicator()
+
+				// Override text modification for selected items
+				if textModified && m.StatusIndicatorStyle == "text-style" {
+					// Keep the orange color for selected items
+					line = strings.TrimSpace(lipgloss.NewStyle().Render(line))
+				}
+			}
+
+			// For sidebar style, prefix with a colored bar
+			if sidebarIndicator != "" {
+				prefix = sidebarIndicator + prefix[len(sidebarIndicator):]
 			}
 
 			listContent += rowStyle.Render(fmt.Sprintf("%s%s%s", prefix, line, indicators)) + "\n"
@@ -274,7 +297,7 @@ func renderDetails(item interface{}, width int) string {
 				metaBadges = append(metaBadges, shared.StyleBadge.Render(strings.ToUpper(m.AudioCodec)))
 			}
 			if m.AudioChannels > 0 {
-				metaBadges = append(metaBadges, shared.StyleBadge.Render(fmt.Sprintf("%d.1", m.AudioChannels-1)))
+				metaBadges = append(metaBadges, shared.StyleBadge.Render(formatAudioChannels(m.AudioChannels)))
 			}
 		}
 
@@ -312,34 +335,6 @@ func renderDetails(item interface{}, width int) string {
 
 	badgesRow := strings.Join(metaBadges, " ")
 
-	// Progress Bar
-	progressBar := ""
-	if v, ok := item.(plex.Video); ok && v.ViewOffset > 0 && v.Duration > 0 {
-		percent := float64(v.ViewOffset) / float64(v.Duration)
-		barWidth := width / 2
-		if barWidth > 30 {
-			barWidth = 30
-		}
-		if barWidth < 10 {
-			barWidth = 10
-		}
-
-		filled := int(percent * float64(barWidth))
-		if filled > barWidth {
-			filled = barWidth
-		}
-
-		// Use █ for filled and ░ for empty parts
-		filledBar := strings.Repeat("█", filled)
-		emptyBar := strings.Repeat("░", barWidth-filled)
-
-		bar := lipgloss.NewStyle().Foreground(shared.ColorPlexOrange).Render(filledBar) +
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).Render(emptyBar)
-
-		percentInt := int(percent * 100)
-		progressBar = fmt.Sprintf("%s %d%%", bar, percentInt)
-	}
-
 	styledSummary := lipgloss.NewStyle().
 		Foreground(shared.ColorLightGrey).
 		Width(width).
@@ -360,10 +355,6 @@ func renderDetails(item interface{}, width int) string {
 
 	if badgesRow != "" {
 		layout = append(layout, badgesRow, "\n")
-	}
-
-	if progressBar != "" {
-		layout = append(layout, progressBar, "\n")
 	}
 
 	layout = append(layout, styledSummary, "\n")
@@ -389,4 +380,73 @@ func formatTags(tags []plex.Tag) string {
 		names = append(names, t.Tag)
 	}
 	return strings.Join(names, ", ")
+}
+
+func formatAudioChannels(channels int) string {
+	switch channels {
+	case 1:
+		return "MONO"
+	case 2:
+		return "2.0"
+	case 6:
+		return "5.1"
+	case 8:
+		return "7.1"
+	default:
+		return fmt.Sprintf("%dch", channels)
+	}
+}
+
+// renderStatusIndicator returns the status indicator and sidebar indicator based on the configured style
+func (m *Model) renderStatusIndicator(v plex.Video, listWidth int) (string, string) {
+	if v.ViewCount == 0 && v.ViewOffset == 0 {
+		// Unwatched
+		if m.StatusIndicatorStyle == "dots" {
+			return " " + shared.StyleDim.Render("○"), ""
+		}
+		return "", ""
+	}
+
+	// Calculate progress percentage for in-progress items
+	percent := 0
+	if v.ViewOffset > 0 && v.Duration > 0 {
+		percent = int(float64(v.ViewOffset) / float64(v.Duration) * 100)
+	}
+
+	switch m.StatusIndicatorStyle {
+	case "badges":
+		if v.ViewCount > 0 {
+			badge := shared.StyleBadge.Copy().
+				Foreground(lipgloss.Color("#00FF00")).
+				Render("WATCHED")
+			return " " + badge, ""
+		} else if v.ViewOffset > 0 && v.Duration > 0 {
+			badge := shared.StyleBadgeOrange.Render(fmt.Sprintf("%d%%", percent))
+			return " " + badge, ""
+		}
+
+	case "sidebar":
+		if v.ViewCount > 0 {
+			bar := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render("▐")
+			return "", bar
+		} else if v.ViewOffset > 0 && v.Duration > 0 {
+			bar := lipgloss.NewStyle().Foreground(shared.ColorPlexOrange).Render("▐")
+			return "", bar
+		}
+
+	case "text-style":
+		// Text styling is handled in the main rendering logic
+		return "", ""
+
+	case "dots":
+		if v.ViewCount > 0 {
+			dot := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render("●")
+			return " " + dot, ""
+		} else if v.ViewOffset > 0 && v.Duration > 0 {
+			dot := lipgloss.NewStyle().Foreground(shared.ColorPlexOrange).Render("◐")
+			return " " + dot, ""
+		}
+	}
+
+	return "", ""
 }

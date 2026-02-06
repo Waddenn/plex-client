@@ -4,8 +4,11 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/Waddenn/plex-client/internal/appinfo"
+	"github.com/Waddenn/plex-client/internal/cache"
 	"github.com/Waddenn/plex-client/internal/config"
 	"github.com/Waddenn/plex-client/internal/player"
 	"github.com/Waddenn/plex-client/internal/plex"
@@ -39,11 +42,16 @@ type MainModel struct {
 	// Play Queue State
 	playQueue []plex.Video
 	queueIdx  int
+
+	// Sync State
+	syncStatus string
+	syncAdded  int
+	syncTick   int
 }
 
 func NewModel(db *sql.DB, cfg *config.Config, p *plex.Client, info appinfo.Info) MainModel {
 	st := store.New(db)
-	bm := browser.NewModel(p, st)
+	bm := browser.NewModel(p, st, cfg.Sync.AutoSync, cfg.UI.StatusIndicatorStyle)
 
 	initialView := shared.ViewDashboard
 	if cfg.Plex.Token == "" {
@@ -217,6 +225,10 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case settings.MsgConfigChanged:
 		m.cfg = msg.Config
+		if m.browser != nil {
+			m.browser.AutoSync = m.cfg.Sync.AutoSync
+			m.browser.StatusIndicatorStyle = m.cfg.UI.StatusIndicatorStyle
+		}
 		return m, nil
 
 	case login.MsgLoginSuccess:
@@ -226,7 +238,7 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update submodels
 		st := store.New(m.db)
-		bm := browser.NewModel(m.plexClient, st)
+		bm := browser.NewModel(m.plexClient, st, m.cfg.Sync.AutoSync, m.cfg.UI.StatusIndicatorStyle)
 		m.browser = &bm
 		if m.width > 0 && m.height > 0 {
 			_ = m.browser.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
@@ -236,6 +248,58 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Switch to dashboard
 		m.currentView = shared.ViewDashboard
 		return m, m.dashboard.Init()
+
+	case shared.MsgSyncProgress:
+		m.syncStatus = msg.Status
+		m.syncAdded = msg.Added
+		if msg.Done {
+			m.syncStatus = "Sync Complete"
+			m.syncTick = 0
+			m.updateSubmodelsSyncStatus()
+			return m, tea.Tick(time.Second*2, func(t time.Time) tea.Msg { return msgSyncClear{} })
+		}
+		if m.syncStatus != "" && m.syncTick == 0 {
+			m.syncTick = 1
+			m.updateSubmodelsSyncStatus()
+			return m, tickSync()
+		}
+		m.updateSubmodelsSyncStatus()
+		return m, nil
+
+	case msgSyncTick:
+		if m.syncStatus == "" || m.syncStatus == "Sync Complete" {
+			m.syncTick = 0
+			return m, nil
+		}
+		m.syncTick = (m.syncTick % 3) + 1
+		m.updateSubmodelsSyncStatus()
+		return m, tickSync()
+
+	case msgSyncClear:
+		m.syncStatus = ""
+		m.syncAdded = 0
+		m.syncTick = 0
+		m.updateSubmodelsSyncStatus()
+		return m, nil
+
+	case shared.MsgManualSync:
+		if m.cfg.Plex.Token == "" {
+			return m, nil
+		}
+		m.syncStatus = "Manual Sync"
+		m.updateSubmodelsSyncStatus()
+		return m, tea.Batch(
+			tickSync(),
+			func() tea.Msg {
+				if err := cache.Sync(m.plexClient, m.db, false, func(s string, a int) {
+					// Real-time progress would need the 'program' pointer or a channel.
+					// For now, we just stay in "Manual Sync..." state until done.
+				}); err != nil {
+					return shared.MsgError{Err: err}
+				}
+				return shared.MsgSyncProgress{Done: true}
+			},
+		)
 	}
 
 	// Update active submodel
@@ -299,20 +363,67 @@ func (m MainModel) playCurrentQueueItem() tea.Cmd {
 }
 
 func (m *MainModel) View() string {
+	// Global header/footer can be added here if needed, but submodels currently handle their own.
+	// We'll pass the sync status to submodels or wrap their view.
+
+	var s string
 	switch m.currentView {
 	case shared.ViewLogin:
-		return m.login.View()
+		s = m.login.View()
 	case shared.ViewDashboard:
-		return m.dashboard.View()
+		s = m.dashboard.View()
 	case shared.ViewMovieBrowser, shared.ViewSeriesBrowser:
-		return m.browser.View()
+		s = m.browser.View()
 	case shared.ViewPlayer:
-		return shared.StyleBorder.Render(shared.StyleTitle.Render("▶ Playing Video..."))
+		s = shared.StyleBorder.Render(shared.StyleTitle.Render("▶ Playing Video..."))
 	case shared.ViewCountdown:
-		return m.countdown.View()
+		s = m.countdown.View()
 	case shared.ViewSettings:
-		return m.settings.View()
+		s = m.settings.View()
+	default:
+		s = "Unknown View"
 	}
 
-	return "Unknown View"
+	if m.syncStatus != "" {
+		// Injection of sync status in a floating or fixed way?
+		// For now, let's just use the submodel's view.
+		// Actually, the user wants it integrated.
+		// I should ideally update the submodels to show it in their header.
+	}
+
+	return s
+}
+
+type msgSyncTick struct{}
+type msgSyncClear struct{}
+
+func tickSync() tea.Cmd {
+	return tea.Tick(time.Millisecond*500, func(t time.Time) tea.Msg {
+		return msgSyncTick{}
+	})
+}
+
+func (m *MainModel) getSyncDisplay() string {
+	if m.syncStatus == "" {
+		return ""
+	}
+	dots := strings.Repeat(".", m.syncTick)
+	// padding for dots to avoid jumping
+	dotsPadded := dots + strings.Repeat(" ", 3-m.syncTick)
+
+	status := m.syncStatus
+	if m.syncAdded > 0 {
+		status += fmt.Sprintf(" +%d", m.syncAdded)
+	}
+
+	return fmt.Sprintf("%s %s", status, dotsPadded)
+}
+
+func (m *MainModel) updateSubmodelsSyncStatus() {
+	display := m.getSyncDisplay()
+	m.dashboard.SyncStatus = display
+	m.settings.SyncStatus = display
+	if m.browser != nil {
+		m.browser.SyncStatus = display
+	}
 }
